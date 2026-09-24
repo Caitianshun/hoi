@@ -104,6 +104,8 @@ def generate_patches() -> None:
         path = destination / filename
         if content and (not path.exists() or path.read_bytes() != content):
             path.write_bytes(content)
+        elif not content and path.exists():
+            path.unlink()
 
 
 def candidates() -> list[Path]:
@@ -162,10 +164,14 @@ def sync(paths: list[Path]) -> None:
         commit = git("commit", "-m", "Sync project code and configuration")
         if commit.returncode:
             fail(commit.stderr.decode(errors="replace"))
-        print(commit.stdout.decode(errors="replace").strip())
-    push = git("push", "origin", "main")
-    if push.returncode:
-        fail(push.stderr.decode(errors="replace"))
+        print(f"Committed {len(changed_paths)} files")
+    ahead = git("rev-list", "--count", "origin/main..HEAD")
+    if ahead.returncode:
+        fail(ahead.stderr.decode(errors="replace"))
+    if int(ahead.stdout.strip()) > 0:
+        push = git("push", "origin", "main")
+        if push.returncode:
+            fail(push.stderr.decode(errors="replace"))
     print(f"Checked {len(paths)} allowed files; GitHub main is current")
 
 
