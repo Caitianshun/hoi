@@ -1,0 +1,527 @@
+diff --git a/lib_moca/bundle.py b/lib_moca/bundle.py
+index 745f9e4..7241488 100644
+--- a/lib_moca/bundle.py
++++ b/lib_moca/bundle.py
+@@ -7,6 +7,7 @@ import logging, imageio
+ from pytorch3d.ops import knn_points
+ from matplotlib import cm
+ import cv2
++from lib_moca.pixel_geometry import get_homo_coordinate_map as pixel_homo_grid, pixel_to_homo
+ 
+ sys.path.append(osp.dirname(osp.abspath(__file__)))
+ 
+@@ -449,17 +450,7 @@ def spatial_interpolation(src_xyz, src_buffer, query_xyz, K=16, rbf_sigma_factor
+ 
+ 
+ def get_homo_coordinate_map(H, W):
+-    # the grid take the short side has (-1,+1)
+-    if H > W:
+-        u_range = [-1.0, 1.0]
+-        v_range = [-float(H) / W, float(H) / W]
+-    else:  # H<=W
+-        u_range = [-float(W) / H, float(W) / H]
+-        v_range = [-1.0, 1.0]
+-    # make uv coordinate
+-    u, v = np.meshgrid(np.linspace(*u_range, W), np.linspace(*v_range, H))
+-    uv = np.stack([u, v], axis=-1)  # H,W,2
+-    return uv
++    return pixel_homo_grid(H, W)
+ 
+ 
+ def round_int_coordinates(coord, H, W):
+@@ -553,14 +544,7 @@ def fovdeg2focal(fov_deg):
+ 
+ 
+ def track2undistroed_homo(track, H, W):
+-    # the short side is -1,1, the long side may exceed
+-    H, W = float(H), float(W)
+-    L = min(H, W)
+-    u, v = track[..., 0], track[..., 1]
+-    u = 2.0 * u / L - W / L
+-    v = 2.0 * v / L - H / L
+-    uv = torch.stack([u, v], -1)
+-    return uv
++    return pixel_to_homo(track[..., :2], H, W)
+ 
+ 
+ def viz_ba_point(viz_video_rgb, s_track, s_track_valid_mask):
+diff --git a/lib_moca/camera.py b/lib_moca/camera.py
+index c6dd45b..1ec70c1 100644
+--- a/lib_moca/camera.py
++++ b/lib_moca/camera.py
+@@ -11,6 +11,10 @@ from pytorch3d.transforms import (
+     quaternion_to_axis_angle,
+ )
+ import logging
++from lib_moca.pixel_geometry import (
++    GEOMETRY_INTERFACE_VERSION, get_homo_coordinate_map as pixel_homo_grid,
++    pixel_to_homo, homo_to_pixel, normalized_principal,
++)
+ 
+ 
+ class MonocularCameras(nn.Module):
+@@ -32,6 +36,7 @@ class MonocularCameras(nn.Module):
+         self.T = n_time_steps
+         self.register_buffer("delta_flag", torch.tensor(delta_flag))
+         self.register_buffer("iso_focal", torch.tensor(iso_focal))
++        self.register_buffer("geometry_interface_version", torch.tensor(GEOMETRY_INTERFACE_VERSION))
+ 
+         rel_focal, cxcy_ratio = self.__get_init_fc__(
+             fxfycxcy, None if K is None else [K, default_H, default_W]
+@@ -59,8 +64,19 @@ class MonocularCameras(nn.Module):
+         return self.T
+ 
+     @classmethod
+-    def load_from_ckpt(cls, ckpt):
++    def load_from_ckpt(cls, ckpt, allow_legacy_geometry=False):
+         logging.info("Load camera from checkpoint")
++        ckpt = dict(ckpt)
++        if "geometry_interface_version" not in ckpt:
++            if not allow_legacy_geometry:
++                raise ValueError("Unmarked legacy camera: use its original code for old models; "
++                                 "set allow_legacy_geometry=True only to explicitly convert its K/poses "
++                                 "for a fresh geometry run, rebuilding grids/nodes/Gaussians.")
++            logging.warning("Explicitly converting legacy camera K/poses to geometry interface v2; "
++                            "cached grids/nodes/Gaussians must be rebuilt, not silently reused.")
++            ckpt["geometry_interface_version"] = torch.tensor(GEOMETRY_INTERFACE_VERSION)
++        if int(ckpt["geometry_interface_version"]) != GEOMETRY_INTERFACE_VERSION:
++            raise ValueError("Unsupported geometry interface version")
+         H = ckpt["default_H"]
+         W = ckpt["default_W"]
+         delta_flag = ckpt["delta_flag"]
+@@ -317,11 +333,21 @@ class MonocularCameras(nn.Module):
+             ret.append({"params": [self.cxcy_ratio], "lr": lr_c, "name": "cxcy"})
+         return ret
+ 
+-    def backproject(self, uv, d):
+-        return __backproject__(uv, d, self)
++    def backproject(self, uv, d, H=None, W=None):
++        return __backproject__(uv, d, self, H=H, W=W)
++
++    def project(self, xyz, th=1e-5, H=None, W=None):
++        return __project__(xyz, self, th=th, H=H, W=W)
++
++    def backproject_pixel(self, pixel, d, H=None, W=None):
++        H = self.default_H if H is None else H
++        W = self.default_W if W is None else W
++        return self.backproject(pixel_to_homo(pixel, H, W), d, H=H, W=W)
+ 
+-    def project(self, xyz, th=1e-5):
+-        return __project__(xyz, self, th=th)
++    def project_pixel(self, xyz, th=1e-5, H=None, W=None):
++        H = self.default_H if H is None else H
++        W = self.default_W if W is None else W
++        return homo_to_pixel(self.project(xyz, th=th, H=H, W=W), H, W)
+ 
+     def trans_pts_to_world(self, tid, pts_c):
+         assert pts_c.shape[-1] == 3  # and pts_c.ndim == 2
+@@ -342,20 +368,11 @@ class MonocularCameras(nn.Module):
+             H = self.default_H.item()
+         if W is None:
+             W = self.default_W.item()
+-        # the grid take the short side has (-1,+1)
+-        if H > W:
+-            u_range = [-1.0, 1.0]
+-            v_range = [-float(H) / W, float(H) / W]
+-        else:  # H<=W
+-            u_range = [-float(W) / H, float(W) / H]
+-            v_range = [-1.0, 1.0]
+-        # make uv coordinate
+-        u, v = np.meshgrid(np.linspace(*u_range, W), np.linspace(*v_range, H))
+-        uv = np.stack([u, v], axis=-1)  # H,W,2
++        uv = pixel_homo_grid(H, W)
+         return torch.from_numpy(uv).to(self.rel_focal).to(self.rel_focal.device)
+ 
+ 
+-def __project__(xyz, cams, th=1e-5):
++def __project__(xyz, cams, th=1e-5, H=None, W=None):
+     # assert xyz.ndim == 2
+     assert xyz.shape[-1] == 3
+     xy = xyz[..., :2]
+@@ -371,12 +388,12 @@ def __project__(xyz, cams, th=1e-5):
+         )  # ! always clamp to positive
+         assert not (abs(z) < th).any()
+     rel_f = torch.as_tensor(cams.rel_focal).to(xyz)
+-    cxcy = torch.as_tensor(cams.cxcy_ratio).to(xyz) * 2.0 - 1.0
++    cxcy = normalized_principal(cams, xyz, H, W)
+     uv = (xy * rel_f[None] / z) + cxcy[None, :]
+     return uv  # [-1,1]
+ 
+ 
+-def __backproject__(uv, d, cams):
++def __backproject__(uv, d, cams, H=None, W=None):
+     # assert uv.ndim == 2
+     # uv: always be [-1,+1] on the short side
+     assert uv.ndim == d.ndim + 1
+@@ -384,7 +401,7 @@ def __backproject__(uv, d, cams):
+     dep = d[..., None]
+     rel_f = torch.as_tensor(cams.rel_focal).to(uv)
+     # focal = rel_f / 2.0 * min(H, W)
+-    cxcy = torch.as_tensor(cams.cxcy_ratio).to(uv) * 2.0 - 1.0
++    cxcy = normalized_principal(cams, uv, H, W)
+     xy = (uv - cxcy[None, :]) * dep / rel_f[None]
+     z = dep
+     xyz = torch.cat([xy, z], dim=-1)
+@@ -392,14 +409,4 @@ def __backproject__(uv, d, cams):
+ 
+ 
+ def __get_homo_coordinate_map__(H, W):
+-    # the grid take the short side has (-1,+1)
+-    if H > W:
+-        u_range = [-1.0, 1.0]
+-        v_range = [-float(H) / W, float(H) / W]
+-    else:  # H<=W
+-        u_range = [-float(W) / H, float(W) / H]
+-        v_range = [-1.0, 1.0]
+-    # make uv coordinate
+-    u, v = np.meshgrid(np.linspace(*u_range, W), np.linspace(*v_range, H))
+-    uv = np.stack([u, v], axis=-1)  # H,W,2
+-    return uv
+\ No newline at end of file
++    return pixel_homo_grid(H, W)
+diff --git a/lib_moca/intrinsic_helpers.py b/lib_moca/intrinsic_helpers.py
+index 503b04a..857503e 100644
+--- a/lib_moca/intrinsic_helpers.py
++++ b/lib_moca/intrinsic_helpers.py
+@@ -6,6 +6,7 @@ from matplotlib import pyplot as plt
+ import sys, os, os.path as osp
+ from tqdm import tqdm
+ from types import SimpleNamespace
++from lib_moca.pixel_geometry import pixel_to_homo, normalized_principal
+ 
+ sys.path.append(osp.dirname(osp.abspath(__file__)))
+ 
+@@ -23,7 +24,7 @@ def backproject(uv, d, cams):
+     assert uv.shape[-1] == 2
+     dep = d[..., None]
+     rel_f = torch.as_tensor(cams.rel_focal).to(uv)
+-    cxcy = torch.as_tensor(cams.cxcy_ratio).to(uv) * 2.0 - 1.0
++    cxcy = normalized_principal(cams, uv)
+     xy = (uv - cxcy[None, :]) * dep / rel_f
+     z = dep
+     xyz = torch.cat([xy, z], dim=-1)
+@@ -45,7 +46,7 @@ def project(xyz, cams, th=1e-5):
+         )  # ! always clamp to positive
+         assert not (abs(z) < th).any()
+     rel_f = torch.as_tensor(cams.rel_focal).to(xyz)
+-    cxcy = torch.as_tensor(cams.cxcy_ratio).to(xyz) * 2.0 - 1.0
++    cxcy = normalized_principal(cams, xyz)
+     uv = (xy * rel_f / z) + cxcy[None, :]
+     return uv  # [-1,1]
+ 
+@@ -170,14 +171,7 @@ def compute_batch_optimal_sRt_ji(xyz_i, xyz_j, mask):
+ 
+ 
+ def track2undistroed_homo(track, H, W):
+-    # the short side is -1,1, the long side may exceed
+-    H, W = float(H), float(W)
+-    L = min(H, W)
+-    u, v = track[..., 0], track[..., 1]
+-    u = 2.0 * u / L - W / L
+-    v = 2.0 * v / L - H / L
+-    uv = torch.stack([u, v], -1)
+-    return uv
++    return pixel_to_homo(track[..., :2], H, W)
+ 
+ 
+ @torch.no_grad()
+diff --git a/lib_mosca/camera.py b/lib_mosca/camera.py
+index 87f17d7..56aa632 100644
+--- a/lib_mosca/camera.py
++++ b/lib_mosca/camera.py
+@@ -1 +1,2 @@
+-../lib_moca/camera.py
+\ No newline at end of file
++"""Import the shared camera implementation (upstream file held a link target)."""
++from lib_moca.camera import *
+diff --git a/lib_mosca/dynamic_solver.py b/lib_mosca/dynamic_solver.py
+index 015a89f..f9eb269 100644
+--- a/lib_mosca/dynamic_solver.py
++++ b/lib_mosca/dynamic_solver.py
+@@ -7,6 +7,7 @@ import numpy as np
+ from matplotlib import pyplot as plt
+ import imageio
+ import open3d as o3d
++from lib_moca.pixel_geometry import pixel_to_homo
+ 
+ sys.path.append(osp.dirname(osp.abspath(__file__)))
+ 
+@@ -354,13 +355,7 @@ def curve_shaking_identification(curve_xyz, shacking_th=0.2):
+ 
+ 
+ def __int2homo_coord__(track_uv, H, W):
+-    # the short side is [-1,1]
+-    H, W = float(H), float(W)
+-    L = min(H, W)
+-    homo_x = (track_uv[..., 0] + 0.5) / L * 2 - (W / L)
+-    homo_y = (track_uv[..., 1] + 0.5) / L * 2 - (H / L)
+-    homo = torch.stack([homo_x, homo_y], -1)
+-    return homo
++    return pixel_to_homo(track_uv, H, W)
+ 
+ 
+ def __compute_physical_losses__(
+diff --git a/lib_mosca/photo_recon.py b/lib_mosca/photo_recon.py
+index 0ec9ed3..ca92408 100644
+--- a/lib_mosca/photo_recon.py
++++ b/lib_mosca/photo_recon.py
+@@ -689,13 +689,9 @@ class DynReconstructionSolver:
+                         if track_loss_mask.sum() == 0:
+                             _loss_track = torch.zeros_like(_l_rgb)
+                         else:
+-                            pred_track_dst = cams.project(warped_xyz_cam)
+-                            L = min(s2d.W, s2d.H)
+-                            pred_track_dst[:, :1] = (
+-                                (pred_track_dst[:, :1] + s2d.W / L) / 2.0 * L
+-                            )
+-                            pred_track_dst[:, 1:] = (
+-                                (pred_track_dst[:, 1:] + s2d.H / L) / 2.0 * L
++                            # Track supervision is in integer pixel-centre units.
++                            pred_track_dst = cams.project_pixel(
++                                warped_xyz_cam, H=s2d.H, W=s2d.W
+                             )
+                             _loss_track = (pred_track_dst - track_dst).norm(dim=-1)[
+                                 track_loss_mask
+diff --git a/lib_mosca/photo_recon_utils.py b/lib_mosca/photo_recon_utils.py
+index 0974286..7795ea5 100644
+--- a/lib_mosca/photo_recon_utils.py
++++ b/lib_mosca/photo_recon_utils.py
+@@ -359,7 +359,7 @@ def fetch_leaves_in_world_frame(
+ 
+         dep_map = input_dep_list[t].clone()
+         cam_pcl = cams.backproject(
+-            cams.get_homo_coordinate_map(H, W)[mask2d].clone(), dep_map[mask2d]
++            cams.get_homo_coordinate_map(H, W)[mask2d].clone(), dep_map[mask2d], H=H, W=W
+         )
+         cam_R_wc, cam_t_wc = cams.Rt_wc(t)
+         mu = cams.trans_pts_to_world(t, cam_pcl)
+@@ -796,4 +796,4 @@ def identify_traj_id(uv_trajs, visibs, idmap_list):
+ def get_colorplate(n):
+     hue = np.linspace(0, 1, n + 1)[:-1]
+     color_plate = torch.Tensor([colorsys.hsv_to_rgb(h, 1.0, 1.0) for h in hue])
+-    return color_plate
+\ No newline at end of file
++    return color_plate
+diff --git a/lib_mosca/scaffold_utils/fov_helper.py b/lib_mosca/scaffold_utils/fov_helper.py
+index c51a224..10def07 100644
+--- a/lib_mosca/scaffold_utils/fov_helper.py
++++ b/lib_mosca/scaffold_utils/fov_helper.py
+@@ -6,6 +6,7 @@ from matplotlib import pyplot as plt
+ import sys, os, os.path as osp
+ from tqdm import tqdm
+ from types import SimpleNamespace
++from lib_moca.pixel_geometry import normalized_principal
+ 
+ sys.path.append(osp.dirname(osp.abspath(__file__)))
+ 
+@@ -43,7 +44,7 @@ def backproject(uv, d, cams):
+     assert uv.shape[-1] == 2
+     dep = d[..., None]
+     rel_f = torch.as_tensor(cams.rel_focal).to(uv)
+-    cxcy = torch.as_tensor(cams.cxcy_ratio).to(uv) * 2.0 - 1.0
++    cxcy = normalized_principal(cams, uv)
+     xy = (uv - cxcy[None, :]) * dep / rel_f
+     z = dep
+     xyz = torch.cat([xy, z], dim=-1)
+@@ -65,7 +66,7 @@ def project(xyz, cams, th=1e-5):
+         )  # ! always clamp to positive
+         assert not (abs(z) < th).any()
+     rel_f = torch.as_tensor(cams.rel_focal).to(xyz)
+-    cxcy = torch.as_tensor(cams.cxcy_ratio).to(xyz) * 2.0 - 1.0
++    cxcy = normalized_principal(cams, xyz)
+     uv = (xy * rel_f / z) + cxcy[None, :]
+     return uv  # [-1,1]
+ 
+diff --git a/lib_prior/prior_loading.py b/lib_prior/prior_loading.py
+index 1e692dd..690a46c 100644
+--- a/lib_prior/prior_loading.py
++++ b/lib_prior/prior_loading.py
+@@ -6,6 +6,7 @@ from torch import nn
+ import imageio, cv2
+ from tqdm import tqdm
+ import time
++from lib_moca.pixel_geometry import get_homo_coordinate_map as pixel_homo_grid
+ 
+ sys.path.append(osp.dirname(osp.abspath(__file__)))
+ from epi_error.epi_analysis import load_epi_error  # , load_vos
+@@ -93,17 +94,7 @@ def detect_depth_occlusion_boundaries(depth_map, threshold=10, ksize=5):
+ 
+ 
+ def get_homo_coordinate_map(H, W):
+-    # the grid take the short side has (-1,+1)
+-    if H > W:
+-        u_range = [-1.0, 1.0]
+-        v_range = [-float(H) / W, float(H) / W]
+-    else:  # H<=W
+-        u_range = [-float(W) / H, float(W) / H]
+-        v_range = [-1.0, 1.0]
+-    # make uv coordinate
+-    u, v = np.meshgrid(np.linspace(*u_range, W), np.linspace(*v_range, H))
+-    uv = np.stack([u, v], axis=-1)  # H,W,2
+-    return uv
++    return pixel_homo_grid(H, W)
+ 
+ 
+ def query_image_buffer_by_pix_int_coord(buffer, pixel_int_coordinate):
+diff --git a/lib_render/diff-gaussian-rasterization-alphadep-add3/cuda_rasterizer/rasterizer_impl.h b/lib_render/diff-gaussian-rasterization-alphadep-add3/cuda_rasterizer/rasterizer_impl.h
+index ff2d117..4351245 100644
+--- a/lib_render/diff-gaussian-rasterization-alphadep-add3/cuda_rasterizer/rasterizer_impl.h
++++ b/lib_render/diff-gaussian-rasterization-alphadep-add3/cuda_rasterizer/rasterizer_impl.h
+@@ -10,6 +10,7 @@
+  */
+ 
+ #pragma once
++#include <cstdint>
+ 
+ #include <iostream>
+ #include <vector>
+@@ -70,4 +71,4 @@ namespace CudaRasterizer
+ 		T::fromChunk(size, P);
+ 		return ((size_t)size) + 128;
+ 	}
+-};
+\ No newline at end of file
++};
+diff --git a/lib_render/diff-gaussian-rasterization-alphadep/cuda_rasterizer/rasterizer_impl.h b/lib_render/diff-gaussian-rasterization-alphadep/cuda_rasterizer/rasterizer_impl.h
+index ff2d117..4351245 100644
+--- a/lib_render/diff-gaussian-rasterization-alphadep/cuda_rasterizer/rasterizer_impl.h
++++ b/lib_render/diff-gaussian-rasterization-alphadep/cuda_rasterizer/rasterizer_impl.h
+@@ -10,6 +10,7 @@
+  */
+ 
+ #pragma once
++#include <cstdint>
+ 
+ #include <iostream>
+ #include <vector>
+@@ -70,4 +71,4 @@ namespace CudaRasterizer
+ 		T::fromChunk(size, P);
+ 		return ((size_t)size) + 128;
+ 	}
+-};
+\ No newline at end of file
++};
+diff --git a/lib_render/gauspl_renderer_native_add3.py b/lib_render/gauspl_renderer_native_add3.py
+index f039cb7..08d32ce 100644
+--- a/lib_render/gauspl_renderer_native_add3.py
++++ b/lib_render/gauspl_renderer_native_add3.py
+@@ -67,17 +67,9 @@ def render_cam_pcl(
+         if cy is None:
+             cy = H // 2
+ 
+-    # * Specially handle the non-centered camera, using first padding and finally crop
+-    # ! fix this bug on 2023.10.28, use abs!!
+-    if abs(H // 2 - cy) > 1.0 or abs(W // 2 - cx) > 1.0:
+-        center_handling_flag = True
+-        left_w, right_w = cx, W - cx
+-        top_h, bottom_h = cy, H - cy
+-        new_W = int(2 * max(left_w, right_w))
+-        new_H = int(2 * max(top_h, bottom_h))
+-    else:
+-        center_handling_flag = False
+-        new_W, new_H = W, H
++    # Exact calibrated projection, with integer pixel centres.
++    center_handling_flag = False
++    new_W, new_H = W, H
+ 
+     # ! 2023.10.27 Fix this bug, change the order, should use the new_W, new_H to compute FoV
+     # Set up rasterization configuration
+@@ -95,6 +87,8 @@ def render_cam_pcl(
+         .transpose(0, 1)
+         .to(device)
+     )
++    projection_matrix[2, 0] = 2.0 * (cx + 0.5) / new_W - 1.0
++    projection_matrix[2, 1] = 2.0 * (cy + 0.5) / new_H - 1.0
+     full_proj_transform = (
+         viewmatrix.unsqueeze(0).bmm(projection_matrix.unsqueeze(0))
+     ).squeeze(0)
+diff --git a/lib_render/simple-knn/simple_knn.cu b/lib_render/simple-knn/simple_knn.cu
+index e72e4c9..709f3e6 100644
+--- a/lib_render/simple-knn/simple_knn.cu
++++ b/lib_render/simple-knn/simple_knn.cu
+@@ -14,6 +14,7 @@
+ #include "cuda_runtime.h"
+ #include "device_launch_parameters.h"
+ #include "simple_knn.h"
++#include <cfloat>
+ #include <cub/cub.cuh>
+ #include <cub/device/device_radix_sort.cuh>
+ #include <vector>
+@@ -218,4 +219,4 @@ void SimpleKNN::knn(int P, float3* points, float* meanDists)
+ 	boxMeanDist << <num_boxes, BOX_SIZE >> > (P, points, indices_sorted.data().get(), boxes.data().get(), meanDists);
+ 
+ 	cudaFree(result);
+-}
+\ No newline at end of file
++}
+diff --git a/mosca_evaluate.py b/mosca_evaluate.py
+index 1c28b02..9934874 100644
+--- a/mosca_evaluate.py
++++ b/mosca_evaluate.py
+@@ -627,10 +627,7 @@ def test_pck(saved_dir, gt_npz_fn, device, save_fn=None):
+ 
+         dst_xyz = dst_xyz_map.reshape(-1, 3)[index]
+ 
+-        dst_uv = cams.project(dst_xyz)
+-        dst_x = (dst_uv[:, :1] + 1.0) / 2.0 * 360.0
+-        dst_y = (dst_uv[:, 1:] + 480.0 / 360.0) / 2.0 * 360.0
+-        _dst_pred = torch.cat([dst_x, dst_y], dim=1).cpu().numpy()
++        _dst_pred = cams.project_pixel(dst_xyz, H=H, W=W).cpu().numpy()
+         dst_pred.append(_dst_pred)
+ 
+     pck005, _ = eval_pck(dst_gt, dst_pred, img_wh, ratio)
+diff --git a/lib_moca/pixel_geometry.py b/lib_moca/pixel_geometry.py
+new file mode 100644
+index 0000000..9ca02ab
+--- /dev/null
++++ b/lib_moca/pixel_geometry.py
+@@ -0,0 +1,49 @@
++"""Geometry interface v2: integer pixel centres and short-side normalized units.
++
++The normalized domain is q=(2*pixel-[W,H])/min(H,W). It is not a
++grid_sample domain and does not add a half pixel. K uses the same integer
++pixel centres. This affine convention preserves the old loss unit scale.
++"""
++import numpy as np
++import torch
++
++GEOMETRY_INTERFACE_VERSION = 2
++
++
++def _wh_like(value, H, W):
++    return torch.stack([torch.as_tensor(W, device=value.device, dtype=value.dtype),
++                        torch.as_tensor(H, device=value.device, dtype=value.dtype)])
++
++
++def pixel_to_homo(pixel, H, W):
++    if not torch.is_floating_point(pixel):
++        pixel = pixel.float()
++    wh = _wh_like(pixel, H, W)
++    return (2.0 * pixel - wh) / wh.min()
++
++
++def homo_to_pixel(homo, H, W):
++    wh = _wh_like(homo, H, W)
++    return (homo * wh.min() + wh) / 2.0
++
++
++def get_homo_coordinate_map(H, W):
++    H, W = int(H), int(W)
++    if H < 1 or W < 1:
++        raise ValueError('Image dimensions must be positive')
++    u, v = np.meshgrid(np.arange(W, dtype=np.float64), np.arange(H, dtype=np.float64))
++    return (2.0 * np.stack([u, v], axis=-1) - np.array([W, H])) / min(H, W)
++
++
++def normalized_principal(cams, like, H=None, W=None):
++    ratio = torch.as_tensor(cams.cxcy_ratio, device=like.device, dtype=like.dtype)
++    if H is None and W is None:
++        H, W = getattr(cams, 'default_H', None), getattr(cams, 'default_W', None)
++    if H is None or W is None:
++        # The uncalibrated FOV search helpers explicitly assume a centred K.
++        # Their zero normalized principal is valid at every aspect ratio.
++        if bool(torch.all(ratio == 0.5)):
++            return ratio * 0.0
++        raise ValueError('Non-centred principal point requires image H and W')
++    wh = _wh_like(like, H, W)
++    return (2.0 * ratio - 1.0) * wh / wh.min()

@@ -1,0 +1,37 @@
+diff --git a/src/megapose/inference/utils.py b/src/megapose/inference/utils.py
+index 5a9f5ab..bc88f31 100644
+--- a/src/megapose/inference/utils.py
++++ b/src/megapose/inference/utils.py
+@@ -124,7 +124,7 @@ def load_pose_models(
+     else:
+         refiner_renderer = make_renderer(refiner_cfg.renderer)
+ 
+-    mesh_db_batched = mesh_db.batched().cuda()
++    mesh_db_batched = mesh_db.batched(resample_n_points=2000).cuda()
+ 
+     def load_model(run_id: str, renderer: Panda3dBatchRenderer) -> PosePredictor:
+         if run_id is None:
+diff --git a/src/megapose/panda3d_renderer/panda3d_scene_renderer.py b/src/megapose/panda3d_renderer/panda3d_scene_renderer.py
+index e3606d5..4141b7b 100644
+--- a/src/megapose/panda3d_renderer/panda3d_scene_renderer.py
++++ b/src/megapose/panda3d_renderer/panda3d_scene_renderer.py
+@@ -61,7 +61,8 @@ class App(ShowBase):
+     def __init__(self) -> None:
+         p3d.core.load_prc_file_data(
+             __file__,
+-            "load-display pandagl\n"
++            "load-display p3headlessgl\n"
++            f"egl-device-index {os.environ['HOI_EGL_DEVICE_INDEX']}\n"
+             "notify-level-assimp fatal\n"
+             "notify-level-egldisplay fatal\n"
+             "notify-level-glgsg fatal\n"
+@@ -96,6 +97,9 @@ class App(ShowBase):
+             os.environ["EGL_VISIBLE_DEVICES"] = str(dev_id)
+ 
+         super().__init__(windowType="offscreen")
++        renderer_name = self.win.get_gsg().get_driver_renderer()
++        assert "3090" in renderer_name, renderer_name
++        print(f"HOI renderer verified: {renderer_name}", flush=True)
+         self.render.set_shader_auto()
+         self.render.set_antialias(p3d.core.AntialiasAttrib.MAuto)
+         self.render.set_two_sided(True)

@@ -1,0 +1,66 @@
+diff --git a/lib_mosca/camera.py b/lib_mosca/camera.py
+index 87f17d7..56aa632 100644
+--- a/lib_mosca/camera.py
++++ b/lib_mosca/camera.py
+@@ -1 +1,2 @@
+-../lib_moca/camera.py
+\ No newline at end of file
++"""Import the shared camera implementation (upstream file held a link target)."""
++from lib_moca.camera import *
+diff --git a/lib_render/diff-gaussian-rasterization-alphadep-add3/cuda_rasterizer/rasterizer_impl.h b/lib_render/diff-gaussian-rasterization-alphadep-add3/cuda_rasterizer/rasterizer_impl.h
+index ff2d117..4351245 100644
+--- a/lib_render/diff-gaussian-rasterization-alphadep-add3/cuda_rasterizer/rasterizer_impl.h
++++ b/lib_render/diff-gaussian-rasterization-alphadep-add3/cuda_rasterizer/rasterizer_impl.h
+@@ -10,6 +10,7 @@
+  */
+ 
+ #pragma once
++#include <cstdint>
+ 
+ #include <iostream>
+ #include <vector>
+@@ -70,4 +71,4 @@ namespace CudaRasterizer
+ 		T::fromChunk(size, P);
+ 		return ((size_t)size) + 128;
+ 	}
+-};
+\ No newline at end of file
++};
+diff --git a/lib_render/diff-gaussian-rasterization-alphadep/cuda_rasterizer/rasterizer_impl.h b/lib_render/diff-gaussian-rasterization-alphadep/cuda_rasterizer/rasterizer_impl.h
+index ff2d117..4351245 100644
+--- a/lib_render/diff-gaussian-rasterization-alphadep/cuda_rasterizer/rasterizer_impl.h
++++ b/lib_render/diff-gaussian-rasterization-alphadep/cuda_rasterizer/rasterizer_impl.h
+@@ -10,6 +10,7 @@
+  */
+ 
+ #pragma once
++#include <cstdint>
+ 
+ #include <iostream>
+ #include <vector>
+@@ -70,4 +71,4 @@ namespace CudaRasterizer
+ 		T::fromChunk(size, P);
+ 		return ((size_t)size) + 128;
+ 	}
+-};
+\ No newline at end of file
++};
+diff --git a/lib_render/simple-knn/simple_knn.cu b/lib_render/simple-knn/simple_knn.cu
+index e72e4c9..709f3e6 100644
+--- a/lib_render/simple-knn/simple_knn.cu
++++ b/lib_render/simple-knn/simple_knn.cu
+@@ -14,6 +14,7 @@
+ #include "cuda_runtime.h"
+ #include "device_launch_parameters.h"
+ #include "simple_knn.h"
++#include <cfloat>
+ #include <cub/cub.cuh>
+ #include <cub/device/device_radix_sort.cuh>
+ #include <vector>
+@@ -218,4 +219,4 @@ void SimpleKNN::knn(int P, float3* points, float* meanDists)
+ 	boxMeanDist << <num_boxes, BOX_SIZE >> > (P, points, indices_sorted.data().get(), boxes.data().get(), meanDists);
+ 
+ 	cudaFree(result);
+-}
+\ No newline at end of file
++}

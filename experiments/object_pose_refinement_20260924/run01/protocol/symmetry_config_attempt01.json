@@ -1,0 +1,12 @@
+{
+  "candidate_rule": "identity plus 180 degree rotations about each of three area-sampled principal axes and oriented bounding box axes, maximum7; no pose/reference/RGB read",
+  "sample_count": 4096,
+  "sample_seed": 8293,
+  "exact_tolerance_m": 0.0001,
+  "approximate_p95_tolerance_diameter_fraction": 0.01,
+  "approximate_max_tolerance_diameter_fraction": 0.02,
+  "diameter": "maximum pairwise vertex distance",
+  "centre_rule": "oriented bounding box centre, derived only from template geometry; symmetry includes canonical translation c-S@c",
+  "accept_rule": "Both forward and inverse transformed fixed samples plus all vertices pass p95<=1%diameter and max<=2%diameter. Conservative finite hypotheses, not asserted exact physical group.",
+  "bop_status": "Custom finite-set symmetry rotation/model distances, not official BOP MSSD/MSPD."
+}

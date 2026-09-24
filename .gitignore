@@ -1,0 +1,3 @@
+# Uploads use the positive allowlist in scripts/repo_sync.py.
+# Data, weights, environments, experiment artifacts and vendored code stay local.
+*

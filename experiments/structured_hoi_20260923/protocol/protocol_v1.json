@@ -1,0 +1,89 @@
+{
+  "schema": "structured_hoi_known_shape_v1",
+  "status": "S0_S1_two_development_sequences_completed",
+  "guidance_source": "/home/cai_tianshun/Project/HOI/experiments/structured_hoi_20260923/protocol/user_guidance_source.md",
+  "guidance_sha256": "ea7008d04527193428d138337cc94be14ce1539155b09fa0a05d9758e9908894",
+  "objective": "calibrated monocular offline person-object-scene reconstruction; CVPR2027",
+  "allowed_inputs": [
+    "one RGB camera",
+    "known calibration",
+    "generic SMPLX neutral",
+    "RGB predicted GVHMR raw pose",
+    "RGB estimated SAM2/CoTracker/UniDepth",
+    "known object scan geometry without texture"
+  ],
+  "forbidden_training": [
+    "released per-frame human/object poses",
+    "registered reference meshes",
+    "sensor depth",
+    "heldout RGB",
+    "fitted masks/contact labels"
+  ],
+  "historical_D": "different input protocol; never attribute known-template advantage to proposed anchors",
+  "dev1": "Date01_Sub01_boxsmall_hand",
+  "dev2_candidate": "Date01_Sub01_chairwood_lift",
+  "representation": {
+    "human": "SMPLX LBS+bounded canonical and regional time-varying residual; optimizable pose/shape",
+    "object": "one SE3 per timestamp, fixed canonical scan sampling; no time-varying per-Gaussian residual",
+    "background": "time-static Gaussians",
+    "composition": "single D native_add3 calibrated depth-sorted alpha renderer",
+    "world_units": "metres; world_scale=1; never apply c2w twice"
+  },
+  "stages": [
+    {
+      "name": "A_branch_warmup",
+      "steps": [
+        0,
+        1500
+      ],
+      "train": "one selected branch at a time; visible RGB/mask; other foreground excludes hidden silhouette supervision"
+    },
+    {
+      "name": "B_joint_pose",
+      "steps": [
+        1500,
+        2500
+      ],
+      "train": "human pose + object SE3 + bounded regional human residual; freeze Gaussian appearance/geometry"
+    },
+    {
+      "name": "C_joint_refine",
+      "steps": [
+        2500,
+        8000
+      ],
+      "train": "all branches jointly RGB, instance, pose, motion, residual and ordinary track"
+    }
+  ],
+  "S0_track_end_exclusive": 6000,
+  "S1_track_end_exclusive": 8000,
+  "track_start": 1500,
+  "track_interval": 4,
+  "track_source": "identical frozen CoTracker pool; same source-target schedule and budgets",
+  "S0_S1_fairness": "share exact initial state and deterministic source/pair schedule; may share common prefix checkpoint including optimizer/RNG; only track end differs",
+  "S2_S3": "Not entered: reliable small-projection-error whole-entity support loss not repeated in two S1 events. Investigate absolute object initialization and rotation-identity branch first.",
+  "schedule": {
+    "S0_S1_two_dev_target": "2026-09-27",
+    "S2_S3_target": "2026-10-03",
+    "mainline_decision": "2026-10-07",
+    "freeze": "2026-11-04",
+    "writing": [
+      "2026-11-05",
+      "2026-11-15"
+    ]
+  },
+  "resource_policy": "root allocates GPUs; GPU1 sm86 rendering; GPU0 allowed frozen pure-torch preprocessing; cts excluded from HOI; no5090GPU",
+  "evaluation": "frozen checkpoint only, no fitted alignment; keep all preset samples and failures; independent references separate from training",
+  "ordinary_track_loss": "MoSca-style composited target-camera XYZ projected to target RGB, SmoothL1 norm beta5px; no freely moving anchor. Source/target CoTracker valid & same RGB entity interior, maximum512.",
+  "sampling": "precomputed8000 source/target pairs; identical S0/S1, including cutoff; same-point records not added",
+  "density_note": "seen_count means radii>0 projected candidate, NOT true visibility. Pruning needs low opacity and count>=3; unknown-hidden is not directly penalized. Same ordinary policy forS0/S1.",
+  "initialization_artifact": "dev1_initialization/initialization.pt",
+  "implementation_status": "Both controlled pairs trained8000steps and completed frozen export, fitted geometry, fixed queries where available, heldout regions and support diagnostics. Subsequent simple pose-only pilot separate; training frozen.",
+  "dev2": "Date01_Sub01_chairwood_lift",
+  "simple_fixed_track_pose_pilot": {
+    "status": "completed_rejected_for_training",
+    "prediction": "object_init/fixed_track_pose_run01/object_init.npz",
+    "reason": "61/114 directly constrained; centre error14.76->50.25cm, no reliable absolute recovery; original training and initialization unchanged",
+    "future_gate": "Multiple clear source frames, reliable correspondence and silhouette/depth supported rigid pose, no reference used in fitting."
+  }
+}

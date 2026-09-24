@@ -1,0 +1,100 @@
+diff --git a/lib_mosca/camera.py b/lib_mosca/camera.py
+index 87f17d7..56aa632 100644
+--- a/lib_mosca/camera.py
++++ b/lib_mosca/camera.py
+@@ -1 +1,2 @@
+-../lib_moca/camera.py
+\ No newline at end of file
++"""Import the shared camera implementation (upstream file held a link target)."""
++from lib_moca.camera import *
+diff --git a/lib_render/diff-gaussian-rasterization-alphadep-add3/cuda_rasterizer/rasterizer_impl.h b/lib_render/diff-gaussian-rasterization-alphadep-add3/cuda_rasterizer/rasterizer_impl.h
+index ff2d117..4351245 100644
+--- a/lib_render/diff-gaussian-rasterization-alphadep-add3/cuda_rasterizer/rasterizer_impl.h
++++ b/lib_render/diff-gaussian-rasterization-alphadep-add3/cuda_rasterizer/rasterizer_impl.h
+@@ -10,6 +10,7 @@
+  */
+ 
+ #pragma once
++#include <cstdint>
+ 
+ #include <iostream>
+ #include <vector>
+@@ -70,4 +71,4 @@ namespace CudaRasterizer
+ 		T::fromChunk(size, P);
+ 		return ((size_t)size) + 128;
+ 	}
+-};
+\ No newline at end of file
++};
+diff --git a/lib_render/diff-gaussian-rasterization-alphadep/cuda_rasterizer/rasterizer_impl.h b/lib_render/diff-gaussian-rasterization-alphadep/cuda_rasterizer/rasterizer_impl.h
+index ff2d117..4351245 100644
+--- a/lib_render/diff-gaussian-rasterization-alphadep/cuda_rasterizer/rasterizer_impl.h
++++ b/lib_render/diff-gaussian-rasterization-alphadep/cuda_rasterizer/rasterizer_impl.h
+@@ -10,6 +10,7 @@
+  */
+ 
+ #pragma once
++#include <cstdint>
+ 
+ #include <iostream>
+ #include <vector>
+@@ -70,4 +71,4 @@ namespace CudaRasterizer
+ 		T::fromChunk(size, P);
+ 		return ((size_t)size) + 128;
+ 	}
+-};
+\ No newline at end of file
++};
+diff --git a/lib_render/gauspl_renderer_native_add3.py b/lib_render/gauspl_renderer_native_add3.py
+index f039cb7..08d32ce 100644
+--- a/lib_render/gauspl_renderer_native_add3.py
++++ b/lib_render/gauspl_renderer_native_add3.py
+@@ -67,17 +67,9 @@ def render_cam_pcl(
+         if cy is None:
+             cy = H // 2
+ 
+-    # * Specially handle the non-centered camera, using first padding and finally crop
+-    # ! fix this bug on 2023.10.28, use abs!!
+-    if abs(H // 2 - cy) > 1.0 or abs(W // 2 - cx) > 1.0:
+-        center_handling_flag = True
+-        left_w, right_w = cx, W - cx
+-        top_h, bottom_h = cy, H - cy
+-        new_W = int(2 * max(left_w, right_w))
+-        new_H = int(2 * max(top_h, bottom_h))
+-    else:
+-        center_handling_flag = False
+-        new_W, new_H = W, H
++    # Exact calibrated projection, with integer pixel centres.
++    center_handling_flag = False
++    new_W, new_H = W, H
+ 
+     # ! 2023.10.27 Fix this bug, change the order, should use the new_W, new_H to compute FoV
+     # Set up rasterization configuration
+@@ -95,6 +87,8 @@ def render_cam_pcl(
+         .transpose(0, 1)
+         .to(device)
+     )
++    projection_matrix[2, 0] = 2.0 * (cx + 0.5) / new_W - 1.0
++    projection_matrix[2, 1] = 2.0 * (cy + 0.5) / new_H - 1.0
+     full_proj_transform = (
+         viewmatrix.unsqueeze(0).bmm(projection_matrix.unsqueeze(0))
+     ).squeeze(0)
+diff --git a/lib_render/simple-knn/simple_knn.cu b/lib_render/simple-knn/simple_knn.cu
+index e72e4c9..709f3e6 100644
+--- a/lib_render/simple-knn/simple_knn.cu
++++ b/lib_render/simple-knn/simple_knn.cu
+@@ -14,6 +14,7 @@
+ #include "cuda_runtime.h"
+ #include "device_launch_parameters.h"
+ #include "simple_knn.h"
++#include <cfloat>
+ #include <cub/cub.cuh>
+ #include <cub/device/device_radix_sort.cuh>
+ #include <vector>
+@@ -218,4 +219,4 @@ void SimpleKNN::knn(int P, float3* points, float* meanDists)
+ 	boxMeanDist << <num_boxes, BOX_SIZE >> > (P, points, indices_sorted.data().get(), boxes.data().get(), meanDists);
+ 
+ 	cudaFree(result);
+-}
+\ No newline at end of file
++}

@@ -1,0 +1,43 @@
+diff --git a/hmr4d/network/hmr2/__init__.py b/hmr4d/network/hmr2/__init__.py
+index 4be998b..1990361 100644
+--- a/hmr4d/network/hmr2/__init__.py
++++ b/hmr4d/network/hmr2/__init__.py
+@@ -24,7 +24,7 @@ def load_hmr2(checkpoint_path=HMR2A_CKPT):
+     # model = HMR2.load_from_checkpoint(checkpoint_path, strict=False, cfg=model_cfg)
+     model = HMR2(model_cfg)
+ 
+-    state_dict = torch.load(checkpoint_path, map_location="cpu")["state_dict"]
++    state_dict = torch.load(checkpoint_path, map_location="cpu", weights_only=False)["state_dict"]
+     keys = [k for k in state_dict.keys() if k.split(".")[0] in ["backbone", "smpl_head"]]
+     state_dict = {k: v for k, v in state_dict.items() if k in keys}
+     model.load_state_dict(state_dict, strict=True)
+diff --git a/hmr4d/utils/preproc/__init__.py b/hmr4d/utils/preproc/__init__.py
+index 6ef3897..65ad9d4 100644
+--- a/hmr4d/utils/preproc/__init__.py
++++ b/hmr4d/utils/preproc/__init__.py
+@@ -1,9 +1,3 @@
+-from hmr4d.utils.preproc.tracker import Tracker
+-from hmr4d.utils.preproc.vitfeat_extractor import Extractor
+-from hmr4d.utils.preproc.vitpose import VitPoseExtractor
+-from hmr4d.utils.preproc.relpose.simple_vo import SimpleVO
+-
+-try:
+-    from hmr4d.utils.preproc.slam import SLAMModel
+-except:
+-    pass
++"""Isolated inference: import only requested feature/pose submodules.
++Tracker and VO are not needed for supplied SAM2 boxes and fixed cameras.
++"""
+diff --git a/hmr4d/utils/preproc/vitpose_pytorch/src/vitpose_infer/model_builder.py b/hmr4d/utils/preproc/vitpose_pytorch/src/vitpose_infer/model_builder.py
+index 1fcb014..3d4d44f 100644
+--- a/hmr4d/utils/preproc/vitpose_pytorch/src/vitpose_infer/model_builder.py
++++ b/hmr4d/utils/preproc/vitpose_pytorch/src/vitpose_infer/model_builder.py
+@@ -158,7 +158,7 @@ def build_model(model_name, checkpoint=None):
+ 
+     pose = VitPoseModel(backbone, head)
+     if checkpoint is not None:
+-        check = torch.load(checkpoint)
++        check = torch.load(checkpoint, map_location="cpu", weights_only=False)
+ 
+         pose.load_state_dict(check["state_dict"])
+     return pose

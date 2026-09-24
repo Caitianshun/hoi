@@ -1,0 +1,61 @@
+"""Read-only final numeric/hash audit; writes only its two audit JSON reports.
+Does not run solvers, change predictions/evaluation, or open reference assets.
+"""
+from pathlib import Path
+import datetime,hashlib,json,sys,time
+import numpy as np
+E=Path(__file__).resolve().parents[1];sys.path.insert(0,str(E/'code'))
+from surface_constraints import SurfaceConstraintSet,barycentric
+ROOT=Path('/home/cai_tianshun/Project/HOI')
+
+def sha(p):
+ h=hashlib.sha256()
+ with Path(p).open('rb') as f:
+  while b:=f.read(1<<20):h.update(b)
+ return h.hexdigest()
+def dump(p,d):Path(p).write_text(json.dumps(d,ensure_ascii=False,indent=2,allow_nan=False)+'\n')
+def read(p):return json.loads(Path(p).read_text())
+def filecheck(records):
+ rows=[]
+ for r in records:
+  p=Path(r['path']);exists=p.is_file();actual=sha(p) if exists else None
+  rows.append({'path':str(p),'exists':exists,'expected_sha256':r['sha256'],'actual_sha256':actual,'hash_match':actual==r['sha256'],'bytes':p.stat().st_size if exists else None})
+ return rows
+
+def main():
+ st=time.perf_counter();utc=datetime.datetime.now(datetime.timezone.utc).isoformat();history=ROOT/'experiments/pose_objective_diagnosis_20260924/run01/protocol/final_artifact_manifest.json';hr=filecheck(read(history)['artifacts'])
+ historic={'utc':utc,'previous_manifest':str(history),'previous_manifest_sha256':sha(history),'files_checked':len(hr),'all_exist':all(r['exists'] for r in hr),'all_hashes_unchanged':all(r['hash_match'] for r in hr),'mismatches':[r for r in hr if not r['hash_match']],'scope':'Every listed artifact of prior pose_objective_diagnosis run01 final manifest. No historical artifact changed by this audit. Current unfinished report deliberately outside scope.','rows':hr}
+ dump(E/'protocol/historical_integrity.json',historic)
+ frozen=read(E/'protocol/all_outputs_frozen.json');outputs=filecheck(frozen['files']);execution=read(E/'protocol/execution_status.json');exmap={(r['dev'],r['variant']):r for r in execution['runs']};rows=[];counts={};costs={};shared={};all_certificates=True
+ for dev,L in [('dev1',114),('dev2',98)]:
+  op=E/f'observations/{dev}/observations.npz';obs=dict(np.load(op));summary=read(E/f'observations/{dev}/summary.json');oldpath=Path(summary['old_initialization']);old=dict(np.load(oldpath));V=old['canonical_vertices_m'].astype(float);F=old['faces'];surface=SurfaceConstraintSet(V,F,obs['face0'],obs['bary0'],initial_q=obs['q0']);n=len(obs['q0']);split=obs['edge_split'];src=obs['edge_is_source'].astype(bool);weights=obs['edge_weight']
+  counts[dev]={'tracks':n,'all_edges':len(split),'optimization_edges':int((split==0).sum()),'heldout_edges':int((split==1).sum()),'source_edges':int(src.sum()),'source_always_optimization':bool((split[src]==0).all()),'image_optimization_edges':int(((split==0)&~src).sum()),'W':float(weights[split==0].sum()),'WI':float(weights[(split==0)&~src].sum()),'source_count_matches_tracks':int(src.sum())==n,'all_tracks_have_holdout':bool(all(((obs['edge_track']==k)&(split==1)).any() for k in range(n))),'observation_sha256':sha(op)}
+  shared[dev]={'initialization_hashes':[],'observations_hashes':[],'solver_hashes':[],'surface_hashes':[]}
+  features=read(E/f'observations/{dev}/features/manifest.json');costs[f'{dev}_feature_build_seconds']=features['wall_seconds']
+  for variant in ['F00','F01','F10','F11']:
+   d=E/dev/variant;m=read(d/'metrics.json');r=read(d/'run.json');a=dict(np.load(d/'object_init.npz'));s=dict(np.load(d/'surface_points.npz'));proj=dict(np.load(d/'projection_diagnostics.npz'));hist=read(d/'iterations.json');ex=exmap[(dev,variant)];R=a['R_camera'].astype(float);t=a['t_camera_m'];changed=[]
+   for k in old:
+    if not np.array_equal(old[k],a[k],equal_nan=True):changed.append(k)
+   allowed=['R_camera','t_camera_m','R_world','t_world_m','reliability']
+   orth=float(np.max(abs(R@R.transpose(0,2,1)-np.eye(3))));det=float(np.max(abs(np.linalg.det(R)-1)))
+   face=s['face'];bary=s['bary'];qactual=bary@np.zeros((3,3)) if False else np.einsum('ni,nij->nj',bary,V[F[face]])
+   qerr=float(np.max(np.linalg.norm(qactual-s['q_final'],axis=1)));qlocalerr=float(np.max(np.linalg.norm(qactual-s['q'],axis=1)))
+   bounds=np.array([surface.surface_distance_bound(k,int(face[k]),qactual[k]) for k in range(n)]);certmax=0.;certok=True
+   for k in range(n):
+    cert=surface.path_certificate(k,face=int(face[k]),q=qactual[k]);certmax=max(certmax,cert['length_m']);pts=cert['points'];fs=cert['segment_faces']
+    if cert['length_m']>.05+1e-7:certok=False
+    for p1,p2,fidx in zip(pts[:-1],pts[1:],fs):
+     if min(barycentric(p1,V[F[fidx]]))<-1e-6 or min(barycentric(p2,V[F[fidx]]))<-1e-6:certok=False
+   all_certificates &=certok
+   checks={'exit_zero':ex['exit_code']==0,'status_completed':m['status']=='completed' and r['status']=='completed','complete_frames':R.shape==(L,3,3) and t.shape==(L,3),'all_poses_finite':bool(np.isfinite(R).all() and np.isfinite(t).all()),'updates_300':m['actual_updates']==300 and len(hist)==300 and hist[-1]['iteration']==300,'no_time_budget_truncation':m['termination']=='fixed_update_budget','SO3':orth<1e-5 and det<1e-5,'template_camera_time_scale_unchanged':set(changed).issubset(set(allowed)) and set(a)==set(old),'fixed_mesh_vertices_and_faces':np.array_equal(a['canonical_vertices_m'],old['canonical_vertices_m']) and np.array_equal(a['faces'],old['faces']),'bary_legal':bool(np.min(bary)>=-1e-8 and np.max(abs(bary.sum(1)-1))<1e-8),'q_on_fixed_surface':qerr<2e-6 and qlocalerr<1e-8,'q_inside_original_5cm_surface_path':bool(np.isfinite(bounds).all() and bounds.max()<=.05+1e-7 and certok),'initial_q_face_bary_unchanged':bool(np.allclose(s['initial_q'],obs['q0'],atol=1e-8) and np.array_equal(s['initial_face'],obs['face0']) and np.allclose(s['initial_bary'],obs['bary0'],atol=1e-8)),'fixed_q_F00_F01':bool(np.max(abs(s['q_final']-obs['q0']))<2e-6) if variant in ['F00','F01'] else True,'image_off_exactly_zero':all(x['components_before_update']['projection_image']==0 for x in hist) if variant in ['F00','F10'] else True,'GPU1_RTX3090':m['gpu']['CUDA_VISIBLE_DEVICES']=='1' and '3090' in m['gpu']['visible_device'],'same_edge_identity':all(np.array_equal(proj[k],obs[k]) for k in ['edge_track','edge_frame','edge_uv','edge_split']),'finite_complete_projection_arrays':proj['final_projection'].shape==(len(split),2) and bool(np.isfinite(proj['final_projection']).all()),'fixed_edge_denominators':all(m[stage]['coverage']['opt']['fixed_edges']==counts[dev]['optimization_edges'] and m[stage]['coverage']['heldout']['fixed_edges']==counts[dev]['heldout_edges'] for stage in ['initial','final']),'pose_hash_matches_metrics':sha(d/'object_init.npz')==m['pose_sha256'],'surface_hash_matches_metrics':sha(d/'surface_points.npz')==m['surface_sha256']}
+   row={'dev':dev,'variant':variant,'checks':checks,'passed':all(checks.values()),'frames':len(R),'updates':len(hist),'exit_code':ex['exit_code'],'GPU':m['gpu'],'max_SO3_orthogonality_error':orth,'max_SO3_determinant_error':det,'changed_object_init_fields':changed,'max_q_surface_error_m':qerr,'max_recomputed_surface_distance_bound_m':float(bounds.max()),'max_path_certificate_length_m':certmax,'max_stored_distance_disagreement_m':float(np.max(abs(bounds-s['surface_distance_bound_m']))),'source_edges':counts[dev]['source_edges'],'heldout_edges':counts[dev]['heldout_edges'],'q_points':n,'face_switch_count':int(s['face_switch_count'].sum()),'boundary_hit_count':int(s['boundary_hit_count'].sum()),'total_q_update_length_m':float(s['total_move_m'].sum()),'solve_seconds':m['solve_wall_seconds'],'total_inprocess_seconds':m['total_wall_seconds'],'subprocess_seconds':(datetime.datetime.fromisoformat(ex['finished_utc'])-datetime.datetime.fromisoformat(ex['started_utc'])).total_seconds(),'peak_torch_allocated_bytes':m['peak_allocated_bytes'],'update_history_complete':len(hist)==300};rows.append(row)
+   for name,key in [('initialization_hashes','initialization_sha256'),('observations_hashes','observations_sha256'),('solver_hashes','source_sha256'),('surface_hashes','surface_module_sha256')]:shared[dev][name].append(m[key])
+  for name,values in list(shared[dev].items()):shared[dev][name]={'unique':sorted(set(values)),'all_same':len(set(values))==1}
+ costs.update({'observations_build_seconds':read(E/'protocol/observations_complete.json')['seconds'],'implementation_checks_seconds':read(E/'protocol/implementation_checks.json')['seconds'],'formal_solve_seconds_sum':sum(r['solve_seconds'] for r in rows),'formal_total_inprocess_seconds_sum':sum(r['total_inprocess_seconds'] for r in rows),'formal_subprocess_seconds_sum':sum(r['subprocess_seconds'] for r in rows),'runner_including_evaluation_seconds':execution['wall_seconds'],'evaluation_seconds':read(E/'evaluation/paired_metrics.json')['wall_seconds'],'maximum_torch_allocated_bytes':max(r['peak_torch_allocated_bytes'] for r in rows)})
+ pre=read(E/'preflight/dev1_F11/metrics.json');costs['preflight']={k:pre[k] for k in ['status','actual_updates','solve_wall_seconds','total_wall_seconds','peak_allocated_bytes']}
+ review=read(E/'protocol/joint_solver_independent_review.json');failures=[str(p) for p in E.rglob('*') if p.is_file() and p.name in ['failure.json','runner_failure.json']]
+ final={'utc':utc,'scope':'read-only frozen prediction/input/hash numeric audit, without reading reference data; current unfinished report excluded','audit_code_sha256':sha(__file__),'reference_read':False,'GPU_used_for_audit':False,'history_unchanged':historic['all_hashes_unchanged'],'frozen_output_hash_checks':outputs,'all_frozen_output_hashes_match':all(x['hash_match'] for x in outputs),'frozen_config_hash_matches':sha(E/'protocol/frozen_surface_pose.json')==frozen['frozen_config_sha256'],'promotion_rule_hash_matches':sha(E/'protocol/promotion_rules.json')==frozen['promotion_rules_sha256'],'eight_runs_present':len(rows)==8,'all_eight_passed':all(r['passed'] for r in rows),'all_surface_path_certificates_passed':all_certificates,'observation_counts':counts,'shared_identities':shared,'runs':rows,'costs':costs,'failure_status':{'formal_failed_runs':sum(r['exit_code']!=0 for r in execution['runs']),'failure_json_files':failures,'preflight_status':pre['status'],'preexecution_api_issues':['Duplicate initial_face/initial_bary export kwargs','Missing surface.summary() method; intended metadata()'],'fix_timing':'Detected by pre-execution code review and corrected before the successful20-step preflight and all8 formal runs; no formal output rerun or reference-guided correction','evidence':str(E/'protocol/joint_solver_independent_review.json'),'formal_source_hash_identical':all(shared[d]['solver_hashes']['all_same'] for d in shared)},'execution_status':execution['status'],'evaluation_exit_code':execution['evaluation_exit_code'],'runner_OS_exit_code':'not separately stored; recorded completed status and each subprocess exit0 are verified','new_checkpoint_files':[str(p) for p in E.rglob('*.pt')],'audit_limitations':['Per-step face-ID arrays were not separately exported; single-adjacent-face update guarantee is covered by immutable implementation and CPU tests, while this audit recomputes every final surface-path certificate.','Torch allocated peak excludes driver/graphics/process overhead; this prototype uses no graphics renderer.','Costs are measured stage records, not additive wall-clock totals when stages ran in parallel.'],'seconds':time.perf_counter()-st}
+ final['all_required_final_checks_passed']=bool(final['history_unchanged'] and final['all_frozen_output_hashes_match'] and final['frozen_config_hash_matches'] and final['promotion_rule_hash_matches'] and final['eight_runs_present'] and final['all_eight_passed'] and final['all_surface_path_certificates_passed'] and execution['evaluation_exit_code']==0 and not failures)
+ dump(E/'protocol/final_numeric_audit.json',final);print(json.dumps({'history_files':len(hr),'history_unchanged':historic['all_hashes_unchanged'],'frozen_files':len(outputs),'all_required_final_checks_passed':final['all_required_final_checks_passed'],'failed_checks':[{r['dev']+'/'+r['variant']:[k for k,v in r['checks'].items() if not v]} for r in rows if not r['passed']],'costs':costs,'seconds':final['seconds']},indent=2),flush=True)
+ if not final['all_required_final_checks_passed']:raise SystemExit(1)
+if __name__=='__main__':main()

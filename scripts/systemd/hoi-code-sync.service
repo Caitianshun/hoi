@@ -1,0 +1,9 @@
+[Unit]
+Description=Sync HOI project code and configuration to GitHub
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 %h/Project/HOI/scripts/repo_sync.py
+WorkingDirectory=%h/Project/HOI

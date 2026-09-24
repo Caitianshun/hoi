@@ -1,0 +1,98 @@
+{
+  "schema": "P1_input_pose_v1",
+  "frozen_utc": "2026-09-24T06:02:08.769259+00:00",
+  "seed": 12345,
+  "same_rule_both_devs": true,
+  "candidate_generation": {
+    "preferred": "official frozen MegaPose RGB; <=5 candidates/keyframe",
+    "retained": "old input pose + best4 official candidates by input-only normalized score, <=5 total/keyframe",
+    "fallback_only_if_megapose_unavailable": "old pose times canonical longest principal-axis rotations [0,90,180,270] degrees and camera-ray translation factors [.9,1,1.1]; 12 finite starts, no reference offset",
+    "local_polish_max_nfev": 24,
+    "candidate_max_per_keyframe": 5,
+    "max_whole_paths": 3,
+    "paths": "historical whole path plus two diverse input-score beam paths. Interpolate keyframe corrections over old input motion using actual times, preserve endpoints."
+  },
+  "fixed_geometry": {
+    "units": "metres",
+    "canonical_origin": "historical arithmetic mean of all scan vertices",
+    "shape": "exact old canonical vertices/faces; all points share R/t; no appearance/scale/camera/human/background updates"
+  },
+  "input_terms": {
+    "mask_samples_per_frame": 64,
+    "fitting_surface_samples": 2048,
+    "image_sigma_px": 2.0,
+    "depth_sigma_m": 0.1,
+    "weak_depth_multiplier": 0.15,
+    "track_sigma_px": 3.0,
+    "track_multiplier": 0.5,
+    "temporal_translation_acceleration_sigma_m_s2": 10.0,
+    "temporal_rotation_acceleration_sigma_rad_s2": 80.0,
+    "temporal_multiplier": 0.1,
+    "old_pose_tether": 0.0,
+    "block_normalization": "Each per-frame block divided by sqrt(sample count). Robust soft_l1, f_scale=1. Missing block zero, counts kept. No reference residual.",
+    "silhouette": "observed object pixels to projected mesh surface samples (chair) or convex-hull outside distance (closed box); projected samples/boundary to background distance; human/unknown not negative; no partial bbox size equality",
+    "depth_validity": "historical depth_observed_mask plus finite values, >.1m and robust median +- max(.2m,4*1.4826*MAD), frozen rule",
+    "rgb": "fixed 9x9 patch RGB/NCC gate plus cross-source overlap descriptor test; separate score/count; no learned appearance"
+  },
+  "correspondence": {
+    "source_attachment": "candidate frontmost ray-triangle hit tied to each candidate path; NEVER treated as independent confirmation",
+    "cross_source_confirmation": "two different seed frames with >=2 shared reliable target observations within 2.5px, source patch NCC>=.5 and RGB mean absolute difference<=35/255, candidate canonical separation<=.025m; both remain conditional on path; no claim of true material labels",
+    "max_confirmed_queries_per_source": 48,
+    "unconfirmed": "record candidate/uncertain, exclude strong fixed canonical track residual; missing visibility dormant, no added observation",
+    "rebind_during_fit": false,
+    "same_source_self_evidence": false
+  },
+  "optimization": {
+    "algorithm": "scipy least_squares sparse whole-trajectory SE3, robust soft_l1",
+    "max_nfev": 35,
+    "diff_step": 0.0001,
+    "tolerances": 0.0001,
+    "z_translation_bounds_m": [
+      0.4,
+      8.0
+    ],
+    "num_outer_passes": 1
+  },
+  "path_selection": {
+    "input_score": "mean robust normalized silhouette + depth + confirmed-track + acceleration + 0.1*RGB cross-source inconsistency; includes visibility coverage counts and 0.1*(1-confirmed/input-reliable coverage) to avoid zero-track preference",
+    "beam_width": 30,
+    "endpoint_motion_transition": "0.03*(translation m/dt/.5)^2 + 0.02*(rotation rad/dt/2)^2",
+    "path_diversity_rotation_deg": 15,
+    "path_diversity_translation_m": 0.03,
+    "fixed_visible_counts": {
+      "dev1": 103,
+      "dev2": 91
+    },
+    "iou": "same old/new actual triangle union; predicted object ignored at human or unknown pixels; fixed masks, no frame dropping",
+    "max_mean_visible_IoU_drop": 0.02,
+    "hard_rejections": [
+      "nonfinite",
+      "illegal SO3",
+      "any referenced surface vertex behind camera",
+      "fixed scale/geometry modified",
+      "unrecorded dropped observations"
+    ],
+    "freeze_hash_before_independent_scoring": true
+  },
+  "S1_star": {
+    "from_step": 0,
+    "stop_step": 8000,
+    "one_per_accepted_dev": true,
+    "copy_old_initialization_exactly_except": [
+      "object_R",
+      "object_t",
+      "object_init"
+    ],
+    "interpretation": "initial pose + soft-prior target + correction temporal reference change together",
+    "new_tracklets_enter_reconstruction_loss": false,
+    "old_core_code_caches_schedules_weights_colors_geometry_unchanged": true
+  },
+  "not_enabled": [
+    "S2",
+    "attention",
+    "contact",
+    "freeform deformation",
+    "reference tuning"
+  ],
+  "deadline": "bounded 2-3 days; no new search grid"
+}
