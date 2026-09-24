@@ -1,0 +1,134 @@
+{
+  "status": "metadata_valid_protocol_frozen_no_scoring",
+  "utc": "2026-09-23T15:08:28.313590+00:00",
+  "prediction_loaded": false,
+  "reference_vertex_positions_loaded": false,
+  "reference_role": "evaluation_only_registered_fit_not_sensor_ground_truth",
+  "inputs": {
+    "/home/cai_tianshun/Project/HOI/research/2026-09-23/evaluation_pointcloud_reference/person_fitted_vertices_world.npz": "f1a0619a89f3582a3748c5d33506b6693fa3ab4e8347caa6430c19d5c574a71f",
+    "/home/cai_tianshun/Project/HOI/research/2026-09-23/evaluation_pointcloud_reference/manifest.json": "f7140fa1f6d606ba742f50669b64f2bf997545c396ffa0cfef00e66279e25636",
+    "/home/cai_tianshun/Project/HOI/experiments/mosca_interface_validation_20260923/human_prior/prepared_input/input_manifest.json": "56f0d47bc39780a660ea4b7765d63eae97a60596fd1459646a4c5f7104b55cc6",
+    "/home/cai_tianshun/Project/HOI/third_party/GVHMR/hmr4d/utils/body_model/smpl_coco17_J_regressor.pt": "bacdaf756629493994cc869f4c27d179f5e4a5d06b8797ee3dcb94571522079f",
+    "/home/cai_tianshun/Project/HOI/third_party/GVHMR/hmr4d/utils/body_model/smplx2smpl_sparse.pt": "0fc821a9e79ec3e76d6a9796b96d5bef8cd67055e18497bbe370d8aed9e07e06"
+  },
+  "reference_header": {
+    "shape": [
+      14,
+      6890,
+      3
+    ],
+    "dtype": "float32",
+    "fortran_order": false
+  },
+  "reference_face_shape": [
+    13776,
+    3
+  ],
+  "reference_faces_sha256": "ad8505aef6d1a4269a5f17705ba293911dd0a4b33b6bb887fabd9f9345728626",
+  "regressor_shape": [
+    17,
+    6890
+  ],
+  "smplx2smpl_shape": [
+    6890,
+    10475
+  ],
+  "regressor_row_sums": [
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    0.9999799728393555,
+    0.9999802112579346,
+    0.9999799728393555,
+    0.9999799728393555,
+    0.9999800324440002,
+    0.9999800324440002,
+    0.9999808669090271,
+    0.9999805688858032,
+    0.9999800324440002,
+    0.9999800324440002,
+    0.9999799728393555,
+    0.9999799728393555
+  ],
+  "reference_indices": [
+    0,
+    8,
+    16,
+    25,
+    31,
+    39,
+    46,
+    55,
+    65,
+    75,
+    83,
+    93,
+    103,
+    113
+  ],
+  "reference_nominal_seconds": [
+    18.0,
+    19.0,
+    20.0,
+    21.0,
+    22.0,
+    23.0,
+    24.0,
+    25.0,
+    26.0,
+    27.0,
+    28.0,
+    29.0,
+    30.0,
+    31.0
+  ],
+  "matched_input_seconds": [
+    18.029577,
+    18.929577,
+    19.962911,
+    21.062911,
+    21.929577,
+    23.029566,
+    23.896255,
+    24.996233,
+    26.029566,
+    26.996233,
+    27.929588,
+    28.996244,
+    29.996244,
+    30.996244
+  ],
+  "max_nominal_offset_seconds": 0.10374499999999998,
+  "reference_coordinate_frame": "behave_world_k1_color",
+  "reference_units": "m",
+  "topology_evidence": "Official registered person fits exported with stable original vertex IDs, 6890 vertices and identical 13776 faces. Counts alone are not independent proof of canonical vertex ordering; source is standard SMPL-family registration and remeshing/reordering must be excluded.",
+  "protocol": {
+    "freeze_requirement": "Scoring permitted only after prediction artifact SHA and inference settings frozen by root; separate evaluator, reference never enters inference or fitting.",
+    "main_prediction": "raw incam SMPL-X vertices transformed using calibrated c2w; no scale/rigid/Procrustes alignment",
+    "secondary_prediction": "official postproc incam from identical image features; independent saved artifact; do not use own GV0 global as calibrated world",
+    "reference_regression": "J_ref[t] = regressor @ original reference xyz_world[t], unchanged regressor",
+    "prediction_regression": "J_pred[t] = regressor @ smplx2smpl @ world_vertices_smplx[t], use same unchanged matrices",
+    "metrics": [
+      "Absolute Euclidean joint error (mean/median/p90/max), all 17 COCO joints",
+      "Absolute 12-body joint error, indices 5..16; face/eye/ear excluded as fixed anatomy subset",
+      "Left/right/mean wrist absolute errors, COCO indices 9/10; not glove surface",
+      "Hip midpoint absolute error, mean(COCO11,COCO12); position component",
+      "Hip-midpoint-relative 12-body error, subtract own and reference hip midpoint separately; diagnostic only, not absolute reconstruction metric",
+      "14-time displacement relative to first matched sample, all17/body12/wrists; anchored displacement, not free trajectory alignment"
+    ],
+    "per_frame_required": true,
+    "time": "Use fixed 14 input indices, no interpolation into114-frame GT; record nominal and matched real timestamps. Any velocity proxy is coarse interval and timing-uncertain.",
+    "no_confidence_selection": "Score all predetermined reference frames/joints without dropping low-confidence predictions; report invalids explicitly.",
+    "limitations": [
+      "Registered fitted proxy, not sensor ground truth",
+      "May include template-completed hidden body regions",
+      "No finger/grasp/contact accuracy claim",
+      "Joint centres differ from prior glove-surface queries; scores not comparable to MoSca hand query error",
+      "At most one scene prior-quality gate; no established cross-scene improvement",
+      "SMPLX-to-SMPL mapping/model/regressor introduces model-definition discrepancy",
+      "Nominal/RGB offsets up to103.745ms do not certify multisensor synchronization"
+    ]
+  }
+}

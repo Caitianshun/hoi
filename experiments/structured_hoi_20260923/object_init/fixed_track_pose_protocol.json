@@ -1,0 +1,17 @@
+{
+  "role": "input_only_single_simple_pose_diagnostic",
+  "hypothesis": "Fixed source-surface CoTracker correspondence may stabilize rigid orientation beyond independent silhouette/depth initialization; absolute source depth is inherited.",
+  "allowed_inputs": ["run03/object_init.npz", "camera0 input_manifest.json K/c2w/times", "original uniform_cotracker_tap.npz", "SAM2 entity_labels", "input RGB for diagnostics only"],
+  "forbidden_fit_inputs": ["reference meshes or poses", "evaluation query references", "held-out cameras", "S0/S1 predictions", "sensor depth"],
+  "source": "earliest observed run03 frame; use only original manual/grid tracks whose query time equals source; tracker visible and within one-pixel-eroded object mask; front-most triangle ray hit creates immutable canonical anchor",
+  "minimum_correspondences": 6,
+  "canonical_smallest_to_largest_singular_value_min": 0.02,
+  "image_second_singular_value_min_pixels": 3.0,
+  "per_frame_gate": "same immutable IDs, tracker visibility, one-pixel-eroded target object mask, finite coordinates, >=6 points, nondegenerate canonical and image spread",
+  "pnp": {"method":"EPNP RANSAC", "iterations":100, "reprojection_threshold_px":4.0, "confidence":0.999, "seed":230923, "minimum_inliers":6, "positive_depth_required":true},
+  "bundle": {"method":"one scipy sparse least_squares solve", "loss":"soft_l1", "f_scale":1.0, "max_nfev":50, "track_residual":"pixel error / (3 * sqrt(number of valid correspondences))", "rotation_prior":"0.05 * rotation difference to run03 in radians", "translation_prior":"0.05 * translation difference to run03 / 0.1m", "translation_acceleration":"actual-dt velocity change / mean dt / 10 m/s^2", "rotation_acceleration":"actual-dt relative rotation velocity change / mean dt / 80 rad/s^2", "cheirality":"penalize centroid camera z below 0.2m"},
+  "missing_observations": "no track residual, zero observation reliability; weak initialization and actual-dt temporal priors only, never counted as new evidence",
+  "budget": "one fit, no sweep, hard <=600 seconds CPU; save explicit gate failure if source or tracks are degenerate; no training dispatch",
+  "evaluation": "after prediction and hashes frozen, reuse same 14-slot centroid/template identity/direct source-ray query proxy without alignment; proxy is not Gaussian rendered query",
+  "existing_predictions_immutable": true
+}

@@ -2,6 +2,8 @@
 
 当前目标：从真实视频在统一世界坐标系中共同建模人体、交互物体和周围三维场景，重点评价几何、接触、相对位姿与运动。主要采用三维高斯，NeRF/神经表面/跟踪方法作为技术与实验参照。超分不属于当前默认任务。
 
+GitHub 仓库仅同步项目代码、源配置及必要的上游修改补丁；数据、权重、实验输出和文档成品仅保存在本地。下方指向本机绝对路径的研究记录链接不随代码镜像上传。
+
 - [2026-09-24 最新表面点与位姿2×2验证（DOCX）：H1有有限运动收益，八臂均未达完整晋级门槛](/home/cai_tianshun/Project/HOI/experiments/surface_pose_joint_20260924/run01/output/Surface_pose_joint_verification.docx)
 - [最新方法决定](/home/cai_tianshun/Project/HOI/experiments/surface_pose_joint_20260924/run01/METHOD_DECISION.md) 与 [复算入口](/home/cai_tianshun/Project/HOI/experiments/surface_pose_joint_20260924/run01/REPRODUCE.md)
 - [2026-09-24 前轮目标/评分诊断（便携 PDF）：关闭轨迹未纠偏，官方同池排序未通过，不追加训练](/home/cai_tianshun/Project/HOI/experiments/pose_objective_diagnosis_20260924/run01/output/pdf/Pose_objective_diagnosis.pdf)
