@@ -172,7 +172,8 @@ class Report:
             for key in ['ascii','hAnsi','eastAsia','cs']:rf.set(qn('w:'+key),FONT)
             st.paragraph_format.space_after=Pt(6)
         self.doc.styles['Normal'].font.size=Pt(11)
-        self.doc.styles['Normal'].paragraph_format.line_spacing=1.12
+        self.doc.styles['Normal'].paragraph_format.line_spacing=1.08
+        self.doc.styles['Normal'].paragraph_format.space_after=Pt(5)
         self.doc.styles['Normal'].paragraph_format.widow_control=True
         self.doc.styles['Title'].font.size=Pt(20)
         self.doc.styles['Subtitle'].font.size=Pt(10.5)
@@ -382,9 +383,7 @@ class Report:
         records=sorted([r for r in figures if r['group']=='camera1_E'],key=lambda r:(r['dev'],r['time_seconds']))
         pic=self.contact('all_E_fixed_crops',[{**r,'report_label':f"{r['dev']}  {r['frame_id']}  GT | S1 | 4DGS"} for r in records],columns=2,mode='behave_crop')
         self.image(pic,'全部九帧固定裁剪。每格依次为真实图像 完整 S1 适配 4DGS；边界由原 O 外接框增加 60 像素得到，各方法使用同框。裁剪只帮助观察，主指标仍使用整图上的原固定区域。',max_height=7.9)
-        rows=[['事件帧','固定裁剪左 上 右 下']]
-        for r in records:rows.append([DEV_NAMES[r['dev']]+' '+r['frame_id'],'  '.join(map(str,r['crop_bounds_xyxy']))])
-        self.table(rows,[2.3,4.69],8.2)
+        self.p('裁剪坐标逐帧保存在反馈包 evaluation/comparison/figure_manifest.json 的 crop_bounds_xyxy；图像和坐标使用同一冻结清单。箱体5帧、木椅4帧完整包含。','Caption')
 
     def fit_figures(self,figures):
         self.page('输入相机的固定规则示例')
@@ -415,26 +414,24 @@ class Report:
             self.p('统一 LPIPS 本次全部记 NA，原因由评价程序记录为 '+H['lpips'].get('reason','未提供具体原因')+'；这不影响已有 PSNR 与 SSIM 的有效帧。','Caption')
         native=H['native_H0_metrics']
         self.p(f"H0 原生 16 帧复核另得 PSNR {numeric(native['PSNR_frame_mean'])}、常规二维 SSIM {numeric(native['SSIM_conventional_2D_frame_mean'],4)}、VGG LPIPS {numeric(native['LPIPS_VGG_scalar_frame_mean'],4)}。它们仅标为本机原生检查点渲染指标；历史训练划分身份未完全核实，不宣称精确复现论文数值。")
-        edge=H['time_boundary_diagnostic']
-        self.p(f"首个测试帧 {edge['frame_id']} 位于 H1 训练帧号范围之外，归一化时间为 {edge['H1_normalized_time']:.8f}，明确属于外推并照常保留；没有静默截断到零。H0 按原生时间接口处理。移动相机测试同时涉及时间与视角变化，与 BEHAVE 同步多相机压力测试是不同问题。")
 
     def hos_figures(self,H):
         figures=sorted(H['figures'],key=lambda r:Path(r['path']).stem)
         assert len(figures)==16
         metrics=csv_rows(self.run/'evaluation/hos_comparison/metrics_per_frame.csv')
         lookup={(r['frame_id'],r['method'],r['region']):r for r in metrics}
-        for chunk_no,start in enumerate([0,8],1):
+        for chunk_no,start in enumerate([0,4,8,12],1):
             self.page('Backpack 全部测试图像 '+str(chunk_no))
-            subset=figures[start:start+8]
+            subset=figures[start:start+4]
             rec=[{**f,'frame_id':Path(f['path']).stem,'report_label':Path(f['path']).stem+'   GT | H0 | H1'} for f in subset]
-            pic=self.contact('hos_all_test_'+str(chunk_no),rec,columns=2,mode='hos_full')
-            self.image(pic,'固定测试列表按帧号排序，每格依次为真实图像 H0 官方检查点 H1 适配 4DGS。完整图像内嵌，不挑选成功帧；两个系统的信息条件不同，图中并列用于外部校准。',max_height=5.8)
+            pic=self.contact('hos_all_test_'+str(chunk_no),rec,columns=1,mode='hos_full')
+            self.image(pic,'固定测试列表按帧号排序，每格依次为真实图像 H0 官方检查点 H1 适配 4DGS。完整图像内嵌，不挑选成功帧；两个系统的信息条件不同，图中并列用于外部校准。',max_height=6.55)
             rows=[['帧 ID','H0 PSNR','H1 PSNR','H0 SSIM','H1 SSIM','H0 LPIPS','H1 LPIPS']]
             for f in rec:
                 fid=f['frame_id'];a=lookup[fid,'H0','full'];b=lookup[fid,'H1','full']
                 rows.append([fid,numeric(a['psnr_db']),numeric(b['psnr_db']),numeric(a['ssim'],4),numeric(b['ssim'],4),numeric(a['lpips_spatial_mean'],4),numeric(b['lpips_spatial_mean'],4)])
             self.table(rows,[.7,1.05,1.05,1.05,1.05,1.045,1.045],8.2)
-            self.p('表为统一评价尺寸上的完整图逐帧指标，独立保存每个系统结果。这里没有按结果挑终态、调整门槛、换初始化或删除困难帧。','Caption')
+            self.p('逐帧指标使用相同评价尺寸，H0与H1条件不同。00000的H1时间为−1/282，早于训练帧1，明确保留外推；不是全部前景失败的唯一原因。移动单目测试同时改变时间和视角。','Caption')
 
     def costs_page(self):
         self.page('实际训练成本与完整性')
@@ -452,10 +449,12 @@ class Report:
         self.p('续训文件包含模型、Adam优化器、随机数和采样栈；推理体积为官方终态point_cloud目录文件之和。allocated与reserved是PyTorch口径，进程显存来自每5秒的nvidia-smi采样，可能漏过短峰；它们不能互称整卡用量。','Caption')
         total=sum(x['wall_seconds'] for x in ledger)
         self.p(f'全部GPU任务均在本机物理GPU1 RTX3090完成，累计{total:.1f}秒，即{total/3600:.3f}小时，占12小时预算的{total/43200*100:.2f}%。这是含加载和导出的任务墙钟，不是CUDA核计时；早期短检查的少量Python导入开销未单独测量。')
-        self.p('HOS训练侧特征提取与三角化实测268.81秒；两BEHAVE原生CPU核对0.88与0.80秒，HOS来源独立审计6.12秒。统一CPU评价BEHAVE 75.72秒、HOS 105.75秒，完整性核验12.83秒。下载、环境和报告工程耗时未混入GPU小时。')
+        prep={x['name']:x['seconds'] for x in self.costs['preprocessing']};ev=self.costs['CPU_evaluation_seconds'];integrity=read(self.run/'protocol/final_integrity.json')
+        self.p(f"HOS训练侧特征与三角化{prep['HOS train-only features and triangulation']:.2f}秒；两BEHAVE原生CPU核对{prep['behave_dev1_native_cpu_check.json']:.2f}与{prep['behave_dev2_native_cpu_check.json']:.2f}秒，HOS来源审计{prep['hos_independent_source_review.json']:.2f}秒。统一CPU评价BEHAVE {ev['BEHAVE']:.2f}秒、HOS {ev['HOS']:.2f}秒，完整性核验{integrity['seconds']:.2f}秒。下载、环境和报告工程耗时未混入GPU小时。")
         self.p('旧SMPL-X、RGB姿态、SAM2、预测深度与S1属于复用成本，不记为首次零成本。H0直接载入官方200000步检查点；本轮没有从零重训HOSNeRF。')
         self.paras('incidents')
-        self.p('独立核验确认冻结输入与终态不变，6个模型状态有限；186个测试区域PSNR重算最大差0，90／2210／96／804行和69个汇总组通过。该检查保证记录和计算可追踪，不把像素一致性升级为真实几何或接触正确。')
+        v=integrity['metrics']
+        self.p(f"独立核验确认冻结输入与终态不变，{integrity['models_checked']}个模型状态有限；{v['independent_valid_region_PSNR_checks']}个测试区域PSNR重算最大差{v['maximum_absolute_PSNR_difference_db']:.3g}，{v['mean_median_pooled_aggregate_groups']}个汇总组通过。这保证计算可追踪，不证明真实几何或接触正确。")
 
     def decision_and_sources(self):
         self.page('阶段决定与复算来源')
@@ -503,7 +502,7 @@ def main(args):
         rels=z.read('word/_rels/document.xml.rels').decode()
         assert 'TargetMode="External"' not in rels,'Report images must be embedded, no external image dependency'
     audit=dict(status='authored_awaiting_render_and_visual_QA',created_utc=datetime.now(timezone.utc).isoformat(),docx=ident(output),
-        planned_pages=15,
+        planned_pages=17,
         document_photo_encoding='JPEG quality95 no chroma subsampling, same pixel dimensions; original PNG evidence and float metrics preserved',sections=r.section_pages,embedded_media_count=len(media),image_sources=r.image_sources,figure_coverage=coverage,
         sources=[ident(p) for p in [args.content or run/'report_content.json',costpath,run/'existing_error_summary.json',
             run/'evaluation/comparison/summary.json',run/'evaluation/comparison/figure_manifest.json',run/'evaluation/hos_comparison/summary.json',
