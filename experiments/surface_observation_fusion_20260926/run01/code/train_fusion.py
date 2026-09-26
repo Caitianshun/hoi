@@ -24,7 +24,7 @@ def run(dev,variant,check):
   save(out/'config.json',cfg)
   schedule=np.load(AUX/'frozen_aux'/f'{dev}_frame_schedule.npy')[:2000];eligible=[int(t) for t in schedule if (mem.features(int(t))[3].sum(1)>=2).any()]
   if check:
-   assert len(eligible)>=2;frames=eligible[:8]
+   frames=json.loads((E/'protocol/fusion_frozen.json').read_text())['input_check'][dev]['precheck_frames'];assert len(set(frames))>=2
    parity=[]
    for t in [None]+sorted(set(frames)):
     f=mem.features(t);err=float((net(f)-Scorer('F0').cuda()(f)).abs().max());assert err==0;parity.append(err)
