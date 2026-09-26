@@ -50,9 +50,9 @@ class Memory:
   self.features()
   for t in range(self.T):self.features(t)
  def audit(self,scorer):
-  features=self.features();color,w=scorer(features,True);w=w.detach().cpu().numpy();ids=self.selections[-1];eligible=np.flatnonzero((ids>=0).sum(1)>=2)
+  features=self.features();color,w=scorer(features,True);w=w.detach().cpu().numpy();ids=self.selections[-1];eligible=np.arange(len(ids))
   ii=eligible[np.rint(np.linspace(0,len(eligible)-1,min(8,len(eligible)))).astype(int)] if len(eligible) else []
   rows=[]
   for i in ii:
-   ok=ids[i]>=0;src=ids[i,ok];rows.append(dict(local_id=int(i),stable_id=int(self.obj['stable_id'][i]),face=int(self.query['face'][i]),canonical_xyz_m=self.obj['centres_canonical_m'][i].tolist(),source_indices=src.tolist(),source_times=self.obs['time'][src].tolist(),source_pixels=self.obs['pixel'][src].tolist(),RGB=self.obs['rgb'][src].tolist(),reliability=features[4][i,ok].detach().cpu().tolist(),weights=w[i,ok].tolist(),fallback=False))
+   ok=ids[i]>=0;src=ids[i,ok];rows.append(dict(local_id=int(i),stable_id=int(self.obj['stable_id'][i]),face=int(self.query['face'][i]),canonical_xyz_m=self.obj['centres_canonical_m'][i].tolist(),source_indices=src.tolist(),source_times=self.obs['time'][src].tolist(),source_pixels=self.obs['pixel'][src].tolist(),RGB=self.obs['rgb'][src].tolist(),reliability=features[4][i,ok].detach().cpu().tolist(),weights=w[i,ok].tolist(),fallback=bool(ok.sum()<2),fallback_reason=('fewer than two legal source times' if ok.sum()<2 else None)))
   return rows
