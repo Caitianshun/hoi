@@ -181,6 +181,7 @@ class Report:
         self.doc.styles['Heading 2'].font.size=Pt(11.5)
         self.doc.styles['Caption'].font.size=Pt(8.6)
         self.doc.styles['Caption'].font.italic=False
+        self.doc.styles['Caption'].font.bold=False
         self.doc.styles['Caption'].paragraph_format.line_spacing=1.03
         self.doc.styles['Footer'].font.size=Pt(8)
         for st in self.doc.styles:
@@ -241,7 +242,9 @@ class Report:
             if max_height is not None:width=min(width,max_height*img.width/img.height)
         p=self.p('');p.alignment=WD_ALIGN_PARAGRAPH.CENTER;p.paragraph_format.space_after=Pt(3)
         p.paragraph_format.keep_with_next=True
-        inline=p.add_run().add_picture(str(pth),width=Inches(width));inline._inline.docPr.set('descr',caption)
+        embedded=pth.with_suffix('.jpg')
+        with Image.open(pth) as img:img.convert('RGB').save(embedded,quality=95,subsampling=0,optimize=True)
+        inline=p.add_run().add_picture(str(embedded),width=Inches(width));inline._inline.docPr.set('descr',caption)
         cp=self.p(caption,'Caption');cp.paragraph_format.keep_together=True
 
     def contact(self,name,records,columns=1,mode='behave_full'):
@@ -436,30 +439,23 @@ class Report:
     def costs_page(self):
         self.page('实际训练成本与完整性')
         ledger=read(self.run/'protocol/gpu_cost_ledger.json')
-        rows=[['运行','名义步与更新','训练进程秒','最终与峰值点数','峰值 allocated GiB','检查点 MiB']]
-        formal=[]
+        rows=[['运行','名义轮与更新','进程墙钟秒','最终与峰值点数','allocated GiB','续训文件 MiB']]
         for name,label in [('behave_dev1_formal','箱体 E1'),('behave_dev2_formal','木椅 E2'),('hos_backpack_formal','Backpack H1')]:
             d=read(self.run/'runs'/name/'run.json');assert d['status']=='completed'
-            assert d['nominal_iterations']==17000 and d['optimizer_updates']==16999
-            formal.append(d)
-            rows.append([label,f"{d['nominal_iterations']}\n{d['optimizer_updates']}",numeric(next(x['wall_seconds'] for x in ledger if x['label']==name),1),f"{d['final_points']:,}\n{d['peak_points']:,}",numeric(d['peak_allocated_bytes']/2**30,3),numeric(Path(d['checkpoint']).stat().st_size/2**20,1)])
+            rows.append([label,f"{d['nominal_iterations']} / {d['optimizer_updates']}",numeric(next(x['wall_seconds'] for x in ledger if x['label']==name),1),f"{d['final_points']:,} / {d['peak_points']:,}",numeric(d['peak_allocated_bytes']/2**30,3),numeric(Path(d['checkpoint']).stat().st_size/2**20,1)])
         self.table(rows,[1.15,1.1,1.15,1.55,1.15,.89],8.2)
-        temp=self.run/'protocol/temporary_steps.jsonl';temp_steps=len(temp.read_text().splitlines())
-        self.p(f"三个正式运行共 {sum(r['nominal_iterations'] for r in formal):,} 个名义迭代、{sum(r['optimizer_updates'] for r in formal):,} 次优化器更新。锁定官方 coarse 3000 和 fine 14000 日程，保留官方最后 fine 步只反传而不更新的行为，因此每次 17000 对应 16999。临时检查实际 {temp_steps} 步，上限 200；临时产物不进入正式初始化。固定种子 12345，不按保留集表现补种子或选中间检查点。")
-        total=sum(x['wall_seconds'] for x in ledger);peak=max((x.get('peak_process_nvidia_MiB') or 0 for x in ledger),default=0)
-        self.p(f"本轮统一使用物理 GPU1 RTX 3090。运行台账的 GPU 任务进程用时合计 {total:.1f} 秒，即 {total/3600:.3f} 小时，预算为 12 GPU 小时；包含台账内训练、临时检查和前向任务的加载等工作，不是纯 CUDA 核计时。台账采样的单进程显存峰值为 {peak:,} MiB。表中 PyTorch allocated 不是整卡占用，采样峰值也可能漏掉瞬时极值。")
-        if self.costs.get('preprocessing'):
-            rows=[['预处理或验收','时间秒','设备','说明']]
-            for p in self.costs['preprocessing']:
-                rows.append([p['name'],numeric(p.get('seconds'),2),p.get('device','NA'),p.get('note','')])
-            self.table(rows,[1.5,.9,1.0,3.59],8.1,left_columns=(0,3))
-        if self.costs.get('CPU_evaluation_seconds'):
-            values=self.costs['CPU_evaluation_seconds']
-            self.p('统一 CPU 评价墙钟为 '+ '，'.join(f'{name} {numeric(seconds,1)} 秒' for name,seconds in values.items())+'；该项单独报告，不计入 GPU 任务预算。')
-        for note in self.costs.get('notes',[])[2:4]:self.p(note)
-        self.p('检查点体积含Adam优化器、随机数和采样栈状态，用于同状态续跑；推理文件体积与allocated reserved及按PID显存分别保存在costs.json。早期短检查只计driver块，少量Python导入开销未测，不能把总墙钟称精确CUDA核耗时。','Caption')
+        self.p('三次正式共51000个名义迭代、50997次更新。官方日程为coarse 3000和fine 14000，最后fine轮仅反传而不执行更新，按原行为记账。固定seed 12345；临时50＋50＋100共200步，未用作正式初始化，无重开或保留集选模。')
+        rows=[['运行','推理文件 MiB','进程显存 MiB','reserved GiB']]
+        for d in self.costs['formal_runs']:
+            rows.append([d['dataset'],numeric(sum(x['bytes'] for x in d['final_inference_files'])/2**20,1),d['peak_process_nvidia_MiB'],numeric(d['peak_reserved_bytes']/2**30,3)])
+        self.table(rows,[2.35,1.6,1.54,1.5],8.4)
+        self.p('续训文件包含模型、Adam优化器、随机数和采样栈；推理体积为官方终态point_cloud目录文件之和。allocated与reserved是PyTorch口径，进程显存来自每5秒的nvidia-smi采样，可能漏过短峰；它们不能互称整卡用量。','Caption')
+        total=sum(x['wall_seconds'] for x in ledger)
+        self.p(f'全部GPU任务均在本机物理GPU1 RTX3090完成，累计{total:.1f}秒，即{total/3600:.3f}小时，占12小时预算的{total/43200*100:.2f}%。这是含加载和导出的任务墙钟，不是CUDA核计时；早期短检查的少量Python导入开销未单独测量。')
+        self.p('HOS训练侧特征提取与三角化实测268.81秒；两BEHAVE原生CPU核对0.88与0.80秒，HOS来源独立审计6.12秒。统一CPU评价BEHAVE 75.72秒、HOS 105.75秒，完整性核验12.83秒。下载、环境和报告工程耗时未混入GPU小时。')
+        self.p('旧SMPL-X、RGB姿态、SAM2、预测深度与S1属于复用成本，不记为首次零成本。H0直接载入官方200000步检查点；本轮没有从零重训HOSNeRF。')
         self.paras('incidents')
-        self.p('每个数据协议先冻结计划终态及哈希，再前向导出和统一评价；训练没有加载保留 RGB。旧模型、失败输出和源缓存保留。技术性失败及修复按实际日志披露；任何预算截断都不能自动视作完整方法失败。')
+        self.p('独立核验确认冻结输入与终态不变，6个模型状态有限；186个测试区域PSNR重算最大差0，90／2210／96／804行和69个汇总组通过。该检查保证记录和计算可追踪，不把像素一致性升级为真实几何或接触正确。')
 
     def decision_and_sources(self):
         self.page('阶段决定与复算来源')
@@ -507,7 +503,8 @@ def main(args):
         rels=z.read('word/_rels/document.xml.rels').decode()
         assert 'TargetMode="External"' not in rels,'Report images must be embedded, no external image dependency'
     audit=dict(status='authored_awaiting_render_and_visual_QA',created_utc=datetime.now(timezone.utc).isoformat(),docx=ident(output),
-        planned_pages=15,sections=r.section_pages,embedded_media_count=len(media),image_sources=r.image_sources,figure_coverage=coverage,
+        planned_pages=15,
+        document_photo_encoding='JPEG quality95 no chroma subsampling, same pixel dimensions; original PNG evidence and float metrics preserved',sections=r.section_pages,embedded_media_count=len(media),image_sources=r.image_sources,figure_coverage=coverage,
         sources=[ident(p) for p in [args.content or run/'report_content.json',costpath,run/'existing_error_summary.json',
             run/'evaluation/comparison/summary.json',run/'evaluation/comparison/figure_manifest.json',run/'evaluation/hos_comparison/summary.json',
             run/'evaluation/comparison/metrics_per_frame.csv',run/'evaluation/comparison/input_fit.csv',
