@@ -396,7 +396,7 @@ class Report:
                 for i in sorted({0,len(rows)//2,len(rows)-1}):
                     r=rows[i];selected.append({**r,'report_label':f"{dev} {r['frame_id']}  GT | S1 | 4DGS"})
             pic=self.contact(group+'_six_examples',selected,columns=2)
-            self.image(pic,title+'。每事件按已固定预览列表的首 中 末索引选三帧，共六帧，不按质量选图；列顺序始终是真实图像 完整 S1 适配 4DGS。',max_height=3.8)
+            self.image(pic,title+'。每事件按固定预览列表首 中 末索引选三帧，共六帧，不按质量选图；依次为真实图像 完整 S1 适配 4DGS。',max_height=3.8)
         self.p('全部原训练 114 和 98 帧均已评价；这里仅压缩展示固定例子。反馈包保留固定规则预览、全部 paired E 图集与各帧指标，本地评价目录另存全部浮点前向。对 H 与 S 的欠拟合、重新显露区域和边界缺陷，应同时看完整图与物体局部，避免把背景收益直接称作交互改善。')
 
     def hos_results(self,H):
@@ -474,7 +474,7 @@ class Report:
             self.p('E0 '+DEV_NAMES[dev]+'  SHA256  '+s['sha256'],'Caption')
         h0=read(self.run/'protocol/hos_checkpoint_identity.json')
         self.p('H0 Backpack 官方检查点  SHA256  '+h0['sha256'],'Caption')
-        self.p('完整输入与模型来源、初始化哈希、时间/相机清单、最终配置和成本保存在协议索引及反馈包。DOCX 已内嵌图像，复制文档后无需访问本机图片路径；代码、JSON、CSV 和 Markdown 作为可复算源保留。数据、检查点、原始图像和第三方源码不进入公开代码同步。','Caption')
+        self.p('输入与模型来源、初始化哈希、时间/相机清单、最终配置和成本保存在协议索引及反馈包。DOCX 图像已内嵌，可脱离本机独立阅读；代码、JSON、CSV 和 Markdown 作为可复算源保留。公开同步限于自产代码与源配置。','Caption')
         self.doc.add_heading('主要资料与复算文件',2)
         for src in self.content.get('sources',[]):
             self.p(src['label']+'  '+src.get('url','')+'\n'+src.get('detail',''),'Caption')
