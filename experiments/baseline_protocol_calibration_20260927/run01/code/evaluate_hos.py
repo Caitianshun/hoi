@@ -22,11 +22,18 @@ def csvwrite(p,rows):
 def run(freeze,output):
     frozen=json.loads(freeze.read_text());assert frozen['status']=='all_states_frozen' and frozen['scope']=='hos_backpack'
     for a in frozen['assets']:assert sha(a['path'])==a['sha256'],a['path']
+    assets={str(Path(a['path']).resolve()):a['sha256'] for a in frozen['assets']}
     hm=json.loads((RUN/'evaluation/H1/manifest.json').read_text());assert hm['status']=='completed' and hm['all_finals_freeze']['sha256']==sha(freeze)
+    assert Path(hm['all_finals_freeze']['path']).resolve()==freeze.resolve()
+    for key in ['source_checkpoint','effective_config']:
+        a=hm[key];assert assets.get(str(Path(a['path']).resolve()))==a['sha256'],f'H1 {key} is not a frozen terminal asset'
+    assert hm['optimization_steps']==0 and hm['RGB_GT_read'] is False
     assert hm['frame_count']==284 and len(hm['frames'])==284
     H0={};h0sources=[];native_h0_rows=[];checkpoint_identity=None
     for tag,count in [('H0_native_first',1),('H0_native_remaining',15)]:
         base=RUN/'runs'/tag;c=json.loads((base/'completion.json').read_text());assert c['status']=='completed' and c['frames']==count
+        assert assets.get(str(Path(c['identity']['checkpoint']).resolve()))==c['identity']['checkpoint_sha256'], 'H0 checkpoint is not a frozen terminal asset'
+        assert c['identity']['strict_load'] and not c['identity']['missing_keys'] and not c['identity']['unexpected_keys']
         h0sources.append(identity(base/'completion.json'))
         if checkpoint_identity is None:checkpoint_identity=c['identity']['checkpoint_sha256']
         assert checkpoint_identity==c['identity']['checkpoint_sha256']
@@ -34,9 +41,15 @@ def run(freeze,output):
         for fid in c['identity']['render_ids']:
             assert fid not in H0;H0[fid]=base/(fid+'.npz')
     train=json.loads((RUN/'inputs/hos_backpack/manifest.json').read_text());ev=json.loads((RUN/'inputs/hos_backpack/evaluation_manifest.json').read_text())
+    for name in ['manifest.json','evaluation_manifest.json']:
+        p=RUN/'inputs/hos_backpack'/name;assert assets.get(str(p.resolve()))==sha(p),f'{name} is not frozen'
     assert set(H0)=={r['frame_id'] for r in ev['frames']}
     assert len(native_h0_rows)==16 and {r['frame_id'] for r in native_h0_rows}==set(H0), 'H0 native metric IDs must merge once, without duplicates'
     index={(r['group'],r['frame_id']):r for r in hm['frames']};assert len(index)==284
+    expected={('test',f['frame_id']):f for f in ev['frames']}
+    expected.update({('input_fit',f['frame_id']):f for f in train['frames']})
+    assert set(index)==set(expected), 'H1 rendered frame IDs or groups differ from frozen manifests'
+    for key,row in index.items():assert row['source_frame']==expected[key],f'H1 source frame metadata changed at {key}'
     assert output.exists() is False,f'Refuse overwrite {output}';output.mkdir(parents=True)
     # Hash all arrays before decoding any prediction or GT; this records complete
     # immutable outputs, distinct from the earlier terminal-model freeze.
