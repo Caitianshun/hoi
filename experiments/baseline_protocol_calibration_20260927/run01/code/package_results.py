@@ -145,6 +145,10 @@ def feedback():
     build_audit=RUN/'output/report_build_audit.json'
     assert build_audit.is_file(),'Report build identity must accompany the document'
     assert read(build_audit)['docx']['sha256']==sha(doc),'DOCX changed since build audit'
+    report_qa=read(RUN/'output/report_qa.json')
+    assert report_qa['status']=='passed' and report_qa['docx_sha256']==sha(doc),'Final visual QA must match delivered DOCX'
+    portable=read(RUN/'output/portability_qa.json')
+    assert portable['status']=='passed' and portable['docx_sha256']==sha(doc),'DOCX-only portability check must match delivered DOCX'
     # This bundle is a local review artifact, not an upload/publication.
     selected=[]
     for name in ['PROTOCOL.md','REPRODUCE.md','NEXT_DECISION.md','MISSING_ASSETS.md','HOS_ASSETS.md','HANDOFF.md','report_content.json',
@@ -167,11 +171,13 @@ def feedback():
             if p.exists():selected.append(p)
     for p in (RUN/'logs').rglob('attempt.json'):selected.append(p)
     for p in (RUN/'patches').rglob('*.patch'):selected.append(p)
-    for p in (RUN/'output/report_figures').rglob('*.png'):selected.append(p)
-    for p in (RUN/'output').rglob('*'):
-        name=str(p.relative_to(RUN/'output')).lower()
-        if p.is_file() and p.suffix in {'.json','.md','.txt'} and ('audit' in name or 'qa' in name):
-            selected.append(p)
+    # Original comparison figures and the embedded DOCX are sufficient. The
+    # builder regenerates page composites; obsolete layout versions stay local.
+    for name in ['report_build_audit.json','report_qa.json','report_qa_pages_1_9.json',
+                 'report_qa_pages_10_17.json','portability_qa.json']:
+        p=RUN/'output'/name
+        assert p.is_file(),name
+        selected.append(p)
     selected=sorted(set(selected))
     out=RUN/'output/baseline_calibration_feedback.zip'
     temp=out.with_suffix('.zip.tmp')
@@ -179,7 +185,7 @@ def feedback():
         for p in selected:
             assert p.suffix.lower() not in {'.pt','.pth','.ckpt','.npz','.npy','.ply','.mp4'}
             z.write(p,p.relative_to(RUN))
-        z.writestr('FEEDBACK_README.txt','先阅读 output/V3_baseline_calibration.docx。图像已内嵌；output/report_figures为报告组合图，evaluation目录保留全部预定对照图。清单绝对路径只说明原始来源，原始数据、浮点渲染和权重未打包。工程失败与修复见HANDOFF、NEXT_DECISION、output/engineering_incidents.json和patches；嵌入资源结构检查不替代视觉排版验收。\n')
+        z.writestr('FEEDBACK_README.txt','先阅读 output/V3_baseline_calibration.docx。图像已内嵌；evaluation目录保留全部预定对照图，重复报告拼图可由构建脚本生成，不再打包。清单绝对路径只说明原始来源，原始数据、浮点渲染和权重未打包。工程失败与修复见HANDOFF、NEXT_DECISION、output/engineering_incidents.json和patches；视觉及本机单文档可移植验收见output/report_qa.json与portability_qa.json。\n')
     with zipfile.ZipFile(temp) as z:
         assert z.testzip() is None
         assert len(z.namelist())==len(selected)+1
