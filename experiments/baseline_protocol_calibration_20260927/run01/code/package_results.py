@@ -169,7 +169,8 @@ def feedback():
     for p in (RUN/'patches').rglob('*.patch'):selected.append(p)
     for p in (RUN/'output/report_figures').rglob('*.png'):selected.append(p)
     for p in (RUN/'output').rglob('*'):
-        if p.is_file() and p.suffix in {'.json','.md','.txt'} and ('audit' in p.name.lower() or 'qa' in p.name.lower()):
+        name=str(p.relative_to(RUN/'output')).lower()
+        if p.is_file() and p.suffix in {'.json','.md','.txt'} and ('audit' in name or 'qa' in name):
             selected.append(p)
     selected=sorted(set(selected))
     out=RUN/'output/baseline_calibration_feedback.zip'
