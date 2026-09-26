@@ -335,7 +335,7 @@ def finalize_native_gate(regions_sha256, verify_only=False):
         writer = csv.DictWriter(f, fieldnames=columns)
         writer.writeheader()
         writer.writerows(csv_rows)
-    result.update(status='native_input_and_E_gate_frozen', training_gate_passed=True,
+    result.update(status='native_input_and_E_gate_frozen', training_gate=True, training_gate_passed=True,
                   script=artifact(__file__),
                   final_gate=dict(frozen_utc=datetime.datetime.now(datetime.timezone.utc).isoformat(),
                       total_S=21, total_E=9, all_candidates_accounted=True,
