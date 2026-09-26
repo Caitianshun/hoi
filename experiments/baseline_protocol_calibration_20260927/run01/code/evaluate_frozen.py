@@ -63,6 +63,7 @@ def gate(freeze_path):
     assert freeze.get("assets"), "Freeze cannot be an empty marker"
     for asset in freeze["assets"]:
         checked(asset)
+    frozen_assets = {str(Path(a["path"]).resolve()): a["sha256"] for a in freeze["assets"]}
     freeze_sha = sha256(freeze_path)
     manifests = {}
     for dev in ("dev1", "dev2"):
@@ -75,6 +76,8 @@ def gate(freeze_path):
             assert m["status"] == "completed" and m["dev"] == dev
             assert m["all_finals_freeze"]["sha256"] == freeze_sha
             assert checked(m["all_finals_freeze"]).resolve() == Path(freeze_path).resolve()
+            checkpoint = m["source_checkpoint"]
+            assert frozen_assets.get(str(checked(checkpoint).resolve())) == checkpoint["sha256"], "Rendered checkpoint was not frozen"
             assert m["frame_count"] == len(m["frames"])
             assert m.get("optimization_steps", 0) == 0
             index = {(r["group"], r["frame_id"]): r for r in m["frames"]}

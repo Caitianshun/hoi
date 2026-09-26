@@ -87,7 +87,8 @@ def freeze_behave():
                ROOT/'experiments/structured_hoi_20260923'/f'{dev}_initialization/initialization.pt']
         for p in files:assets.append(dict(path=str(p),sha256=sha(p)))
         runs[dev]=dict(run_dir=str(rd),checkpoint=r['checkpoint'])
-    for p in sorted(CODE.glob('*.py')):
+    for name in ['adapter_4dgs.py','train_official.py','render_full_s1.py','render_4dgs.py']:
+        p=CODE/name
         assets.append(dict(path=str(p),sha256=sha(p)))
     freeze=RUN/'protocol/finals.json'
     assert not freeze.exists()
@@ -112,10 +113,14 @@ def prepare(include_hos):
                    measurement='model driver wall; Python import overhead not timed',status='completed') for c in checks]
         for p in (RUN/'protocol').glob('behave_*_native_render_check.json'):
             r=json.loads(p.read_text());rows.append(dict(label=p.stem,wall_seconds=r['wall_seconds'],status='completed',measurement='native verification timed block'))
+        h0=RUN/'runs/H0_native_first/completion.json'
+        if h0.exists():
+            r=json.loads(h0.read_text());rows.append(dict(label='H0_native_first',wall_seconds=r['wall_seconds'],status='completed',measurement='native renderer timed block'))
         save_json(LEDGER,rows)
     freeze=RUN/'protocol/training_frozen.json'
     assert not freeze.exists()
-    sources=[dict(path=str(p),sha256=sha(p)) for p in sorted(CODE.glob('*.py'))]
+    sources=[dict(path=str(CODE/n),sha256=sha(CODE/n)) for n in
+             ['adapter_4dgs.py','train_official.py','run_baselines.py','export_protocol.py','export_shared_init.py','export_hos_protocol.py']]
     inputs=[]
     for ds in datasets:
         p=RUN/'inputs'/ds/'manifest.json';m=json.loads(p.read_text())
@@ -150,8 +155,8 @@ def run():
                               '--run-dir',str(RUN/'runs'/f'behave_{dev}_formal'),'--freeze',str(final)])
                 # CPU metric computation follows all four frozen output groups.
                 with (RUN/'logs/evaluate_frozen.log').open('w') as log:
-                    subprocess.run([S1_PYTHON,str(CODE/'evaluate_frozen.py')],cwd=ROOT,
-                                   env={**os.environ,'OPENBLAS_NUM_THREADS':'2'},stdout=log,stderr=subprocess.STDOUT,check=True)
+                    subprocess.run([S1_PYTHON,str(CODE/'evaluate_frozen.py'),'--freeze',str(final)],cwd=ROOT,
+                                   env={**os.environ,'CUDA_VISIBLE_DEVICES':'','OPENBLAS_NUM_THREADS':'2'},stdout=log,stderr=subprocess.STDOUT,check=True)
         save_json(RUN/'pipeline.json',dict(status='formal_and_behave_evaluation_completed',finished_unix=time.time(),
                                          gpu_job_wall_seconds=used_seconds(),HOS_evaluation='separate frozen entry if available'))
     except BaseException:
