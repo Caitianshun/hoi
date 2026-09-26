@@ -4,7 +4,8 @@
 
 GitHub 仓库仅同步项目代码、源配置及必要的上游修改补丁；数据、权重、实验输出和文档成品仅保存在本地。下方指向本机绝对路径的研究记录链接不随代码镜像上传。
 
-- 2026-09-26 V2 正在执行：B1 两事件各8000步已完成；F0/F1/F2 从旧RR冻结底座开展同信息观测融合对照，全部末态冻结后统一评价。新代码入口 `experiments/fixed_motion_reconstruction_20260926/run01/code/` 和 `experiments/surface_observation_fusion_20260926/run01/code/`，源配置为后者 `experiment_config.json`。
+- [2026-09-26 V2 最新验证总结（DOCX）](/home/cai_tianshun/Project/HOI/experiments/surface_observation_fusion_20260926/run01/output/V2_supervision_surface_fusion.docx)：两次B1与四次F优化已完成；B1未过统一监督门槛，F2未建立优于同信息MLP的增量，本轮收口。
+- [V2 阶段决定](/home/cai_tianshun/Project/HOI/experiments/surface_observation_fusion_20260926/run01/NEXT_DECISION.md) 与 [复算入口](/home/cai_tianshun/Project/HOI/experiments/surface_observation_fusion_20260926/run01/REPRODUCE.md)；源码位于两新实验目录的code，源配置为 `surface_observation_fusion_20260926/run01/code/experiment_config.json`。
 - [上一轮 AUX_REF_OBJECT 正式总结（DOCX）](/home/cai_tianshun/Project/HOI/experiments/aux_ref_object_reconstruction_20260924/run01/output/AUX_REF_OBJECT_verification.docx)；旧停止结论保持。
 - [2026-09-24 历史表面点与位姿2×2验证（DOCX）：H1有有限运动收益，八臂均未达完整晋级门槛](/home/cai_tianshun/Project/HOI/experiments/surface_pose_joint_20260924/run01/output/Surface_pose_joint_verification.docx)
 - [历史方法决定](/home/cai_tianshun/Project/HOI/experiments/surface_pose_joint_20260924/run01/METHOD_DECISION.md) 与 [复算入口](/home/cai_tianshun/Project/HOI/experiments/surface_pose_joint_20260924/run01/REPRODUCE.md)
