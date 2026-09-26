@@ -129,7 +129,9 @@ def native_check(dev,device):
 def export_render(dev,freeze):
     torch.set_num_threads(2)
     frozen=json.loads(Path(freeze).read_text())
-    assert frozen.get('status')=='frozen', 'All planned BEHAVE final models must be frozen first'
+    assert frozen.get('status')=='all_states_frozen' and frozen.get('scope')=='behave_pair', 'All planned BEHAVE final models must be frozen first'
+    for asset in frozen['assets']:
+        assert sha(asset['path'])==asset['sha256'],f'Frozen asset changed: {asset["path"]}'
     check=json.loads((RUN/'protocol'/f'behave_{dev}_native_render_check.json').read_text());assert check['status']=='passed'
     base=RUN/'inputs'/f'behave_{dev}'
     evalm=json.loads((base/'evaluation_manifest.json').read_text());train=json.loads((base/'manifest.json').read_text())

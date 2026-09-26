@@ -77,6 +77,14 @@ def export(dev):
         information_boundary={'allowed':['original camera0 RGB','published camera calibration','generic SMPL-X','RGB-predicted human/object state','untextured known rigid object geometry','input RGB predicted depth','original untrained H/O/S initialization'],
            'forbidden':['camera1 RGB','sensor depth','published per-frame human/object fits','trained S1/AUX/B/F pointcloud or colors'],
            'legacy_D_boundary_unchanged':True,'system_comparison_not_single_variable_ablation':True})
+    init_meta_path=out/'shared_init.json'
+    if init_meta_path.exists():
+        shared=json.loads(init_meta_path.read_text())
+        train.update(point_cloud={'path':shared['point_cloud']['path'],
+                                  'npz_path':shared['float_point_cloud']['path'],
+                                  'sha256':shared['point_cloud']['sha256'],
+                                  'npz_sha256':shared['float_point_cloud']['sha256']},
+                     scene_extent=shared['scene_extent'],scene_center=shared['scene_center'],aabb=shared['aabb'])
     save(out/'manifest.json',train)
     # Separate manifest: no evaluation paths are embedded in the training loader input.
     reg_path=AUX/'evaluation/regions/manifest.json';regions=json.loads(reg_path.read_text())
@@ -113,7 +121,30 @@ def export(dev):
     print(json.dumps({'dev':dev,'training_frames':n,'evaluation_frames':len(eframes),'time_range':[start,end]}))
 
 
+def attach_shared_init(dev):
+    """One permitted staging transition: add immutable untrained point metadata.
+
+    Called before training configuration freeze. It changes neither frames nor
+    camera/time identities, and refuses changes to already attached metadata.
+    """
+    base=RUN/'inputs'/f'behave_{dev}';path=base/'manifest.json'
+    train=json.loads(path.read_text());meta=json.loads((base/'shared_init.json').read_text())
+    fields=dict(point_cloud={'path':meta['point_cloud']['path'],'npz_path':meta['float_point_cloud']['path'],
+                            'sha256':meta['point_cloud']['sha256'],'npz_sha256':meta['float_point_cloud']['sha256']},
+                scene_extent=meta['scene_extent'],scene_center=meta['scene_center'],aabb=meta['aabb'])
+    if any(k in train for k in fields):
+        assert all(train.get(k)==v for k,v in fields.items()),'Initialization metadata already set differently'
+    else:
+        train.update(fields);path.write_text(json.dumps(train,indent=2,ensure_ascii=False)+'\n')
+        assetpath=RUN/'protocol'/f'behave_{dev}_assets.json';assets=json.loads(assetpath.read_text())
+        assets['training_manifest']=identity(path)
+        assetpath.write_text(json.dumps(assets,indent=2,ensure_ascii=False)+'\n')
+    print(json.dumps({'dev':dev,'shared_init_attached':True,'manifest':identity(path)}))
+
+
 if __name__=='__main__':
     parser=argparse.ArgumentParser();parser.add_argument('--dev',choices=['dev1','dev2','both'],default='both')
+    parser.add_argument('--attach-shared-init',action='store_true')
     args=parser.parse_args()
-    for dev in ['dev1','dev2'] if args.dev=='both' else [args.dev]: export(dev)
+    for dev in ['dev1','dev2'] if args.dev=='both' else [args.dev]:
+        attach_shared_init(dev) if args.attach_shared_init else export(dev)
