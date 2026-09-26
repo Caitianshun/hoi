@@ -384,9 +384,16 @@ class Report:
         self.doc.add_heading('代码与模型身份',2)
         cfg=read(self.run/'code/experiment_config.json')
         self.p('Wu 4DGS 官方代码 commit  '+cfg['official_commit'],'Caption')
+        launch=read(self.run/'protocol/launcher.json')
+        self.p('本项目正式启动 commit  '+launch['project_commit'],'Caption')
         for name,label in [('behave_dev1_formal','E1'),('behave_dev2_formal','E2'),('hos_backpack_formal','H1')]:
             d=read(self.run/'runs'/name/'run.json')
             self.p(label+'  '+Path(d['checkpoint']).name+'\nSHA256  '+d['checkpoint_sha256'],'Caption')
+        for dev in ['dev1','dev2']:
+            s=read(self.run/'protocol'/f'behave_{dev}_native_render_check.json')['source_identity']['checkpoint']
+            self.p('E0 '+DEV_NAMES[dev]+'  SHA256  '+s['sha256'],'Caption')
+        h0=read(self.run/'protocol/hos_checkpoint_identity.json')
+        self.p('H0 Backpack 官方检查点  SHA256  '+h0['sha256'],'Caption')
         self.p('完整输入与模型来源、初始化哈希、时间/相机清单、最终配置和成本保存在协议索引及反馈包。DOCX 已内嵌图像，复制文档后无需访问本机图片路径；代码、JSON、CSV 和 Markdown 作为可复算源保留。数据、检查点、原始图像和第三方源码不进入公开代码同步。','Caption')
         self.doc.add_heading('主要资料与复算文件',2)
         for src in self.content.get('sources',[]):
@@ -400,6 +407,10 @@ def make_feedback(run,docx,figure_dir):
     for rel in ['PROTOCOL.md','NEXT_DECISION.md','MISSING_ASSETS.md','LITERATURE_PROTOCOL_AUDIT.md','REPRODUCE.md','costs.json',
                 'report_content.json','existing_error_budget.csv','existing_error_summary.json','input_fit_existing.csv',
                 'protocol/literature_sources.json','protocol/behave_finals.json','protocol/hos_finals.json',
+                'protocol/launcher.json','protocol/training_frozen.json','protocol/hos_asset_sources.json',
+                'protocol/hos_split_manifest.json','protocol/hos_checkpoint_identity.json',
+                'protocol/behave_dev1_assets.json','protocol/behave_dev2_assets.json',
+                'protocol/behave_dev1_native_render_check.json','protocol/behave_dev2_native_render_check.json',
                 'code/experiment_config.json','evaluation/comparison/summary.json','evaluation/comparison/metrics_per_frame.csv',
                 'evaluation/comparison/input_fit.csv','evaluation/comparison/paired_differences.csv',
                 'evaluation/hos_comparison/summary.json','evaluation/hos_comparison/metrics_per_frame.csv','evaluation/hos_comparison/input_fit.csv',
