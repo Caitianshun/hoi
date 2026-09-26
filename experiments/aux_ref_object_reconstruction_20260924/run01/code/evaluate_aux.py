@@ -135,6 +135,7 @@ def validate_freeze(freeze,regions):
   a,b=runs[(dev,'Pred')],runs[(dev,'Ref')]
   for key in ('input_manifest','reference_motion'):assert a[key]['sha256']==b[key]['sha256']
   inp=read(a['input_manifest']['path']);assert inp['camera_id']==0 and inp['camera1_used_for_training'] is False and inp['human_reference_used'] is False
+  assert inp['reference_motion_sha256']==a['reference_motion']['sha256'] and Path(inp['reference_object_motion']).resolve()==Path(a['reference_motion']['path']).resolve()
   native_ids={r['sample_id'] for r in inp['native_rows']};e=[r for r in m['rows'] if r['dev']==dev]
   assert len(e)>=2 and len(set(r['sample_id'] for r in e))==len(e)
   assert all(r['sample_id'] in native_ids for r in e),'E must use the same actual native samples as S'
@@ -216,6 +217,7 @@ def score(freeze,regions,output,representation_checks=None):
      r=runs[(dev,arm)];ck=torch.load(r['checkpoint']['path'],map_location='cpu',weights_only=False)
      assert ck['protocol_id']=='AUX_REF_OBJECT' and ck['dev']==dev and ck['arm']==arm and ck['step']==8000
      scene=AuxObjectScene(dev,qt,device='cuda');scene.obank.resize_for_load(ck['obank'],'');scene.obank.load_state_dict(ck['obank'],strict=True);scene.obank.to('cuda');scene.eval();scene.assert_frozen()
+     for key in ('init_sha256','checkpoint_sha256'):assert ck['config']['source'][key]==scene.source_identity[key],'Evaluation scene must match the frozen training scene source'
      before=state_identity(scene.obank.state_dict());assert before==state_identity(ck['obank'])
      if common_frozen is None:common_frozen=scene.frozen_identity
      else:assert common_frozen==scene.frozen_identity,'Four cells must share the same frozen human/background and motion arrays'
@@ -266,11 +268,44 @@ def score(freeze,regions,output,representation_checks=None):
   save(out/'run.json',{**run,'status':'failed','traceback':traceback.format_exc(),'seconds':time.perf_counter()-started,'completed_rows':len(allrows)});raise
 
 
+def check_cpu(output):
+ """Deterministic arithmetic and installed-metric smoke checks, no CUDA."""
+ import torch
+ torch.set_num_threads(2);a=np.full((16,16,3),.4);labels=np.zeros((16,16),np.uint8);labels[3:13,4:12]=2;labels[3:13,:3]=1
+ metric=region_metrics(a,a,labels);assert metric['object']['psnr_db']==120 and metric['object']['ssim']==1
+ rows=[]
+ for dev in ('dev1','dev2'):
+  for i in range(3):
+   for cell in VARIANTS:
+    values=region_metrics(a,a,labels)
+    for region in values:
+     values[region]['psnr_db']={'PP':20.,'PR':21.,'RP':20.3,'RR':21.8}[cell];values[region]['ssim']={'PP':.7,'PR':.75,'RP':.71,'RR':.76}[cell]
+    rows.append({'dev':dev,'sample_id':f'{dev}/synthetic_{i}','cell':cell,'metrics':values})
+ summaries,differences=summarize_cross_rows(rows)
+ assert all(v['numeric_gate_passed'] for v in summaries.values())
+ expected={'swap':1.,'learned_ref':.8,'total':1.8,'learned_pred':.3,'swap_ref_representation':1.5}
+ for dev in summaries:
+  for name,value in expected.items():assert abs(summaries[dev]['differences'][name]['psnr_db']['mean']-value)<1e-9
+ # The median condition is separate from the mean engineering threshold.
+ for r in rows:
+  if r['cell']=='RR':
+   for values in r['metrics'].values():values['psnr_db']=20.9
+ bad,_=summarize_cross_rows(rows);assert not any(v['numeric_gate_passed'] for v in bad.values())
+ model,info=existing_lpips('cpu');lpips_identity=None
+ if model is not None:
+  with torch.no_grad():
+   z=torch.zeros(1,3,64,64);v=model(z,z,normalize=True);lpips_identity=bool(tuple(v.shape)==(1,1,64,64) and float(v.abs().max())<1e-10);assert lpips_identity
+ result={'protocol_id':'AUX_REF_OBJECT','status':'passed','code':identity(__file__),'GPU_used':False,'training_executed':False,'PSNR_SSIM_identity':True,'five_differences_exact_sample_pairing':True,'engineering_threshold_positive_and_negative_cases':True,'LPIPS_existing_only':info,'LPIPS_identity':lpips_identity,'scope':'CPU arithmetic/interface checks; actual Gaussian CUDA rendering is validated only by the scheduled post-freeze scorer.'}
+ save(output,result);print(json.dumps({'status':'passed','output':str(output),'GPU_used':False}),flush=True)
+
+
 def main():
  p=argparse.ArgumentParser();sub=p.add_subparsers(dest='command',required=True)
  q=sub.add_parser('prepare_regions');q.add_argument('--native-manifest',type=Path,default=E/'protocol/native_availability.json');q.add_argument('--output',type=Path)
  q=sub.add_parser('score');q.add_argument('--freeze',type=Path,required=True);q.add_argument('--regions',type=Path,default=E/'evaluation/regions/manifest.json');q.add_argument('--output',type=Path,default=E/'evaluation/cross_pose');q.add_argument('--representation-checks',type=Path)
+ q=sub.add_parser('check_cpu');q.add_argument('--output',type=Path,default=E/'evaluation/evaluator_cpu_checks.json')
  a=p.parse_args()
  if a.command=='prepare_regions':prepare_regions(a.native_manifest,a.output)
- else:score(a.freeze,a.regions,a.output,a.representation_checks)
+ elif a.command=='score':score(a.freeze,a.regions,a.output,a.representation_checks)
+ else:check_cpu(a.output)
 if __name__=='__main__':main()
