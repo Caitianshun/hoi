@@ -324,7 +324,7 @@ DEFINITION = {
 def run(dev, output, maximum=512, hs_images=False, frame_indices=None):
     import torch
     from aux_scene import AuxObjectScene
-    torch.set_num_threads(2)
+    torch.set_num_threads(1)
     start = time.perf_counter()
     manifest_path = E/f'inputs/{dev}/input_manifest.json'
     meta = json.loads(manifest_path.read_text())
@@ -359,6 +359,7 @@ def run(dev, output, maximum=512, hs_images=False, frame_indices=None):
         raw = dict(uv=uv, total_fixed_O_pixels=np.array(mask.sum()), template_arm_order=np.array(['Pred', 'Ref']))
         row = dict(frame_index=index, time_seconds=float(times[index]), sample_id=meta['native_rows'][index]['sample_id'],
                    fixed_O_pixels=int(mask.sum()), sampled_O_pixels=len(uv), fixed_mask_sha256=hashlib.sha256(labels[index].tobytes()).hexdigest(),
+                   status='available' if mask.any() else 'empty_fixed_O_mask',
                    old_prediction_motion_record=scene.motion_records[index], arms={})
         for arm, R, t in [('Pred', scene.pred_R_world[index].numpy(), scene.pred_t_world[index].numpy()), ('Ref', ref['R_world'][index], ref['t_world'][index])]:
             depth = template_depth(vertices, faces, R, t, K, C, H, W)
@@ -393,6 +394,28 @@ def run(dev, output, maximum=512, hs_images=False, frame_indices=None):
         rows.append(row)
         print(json.dumps(dict(dev=dev, frame=index, O=int(mask.sum()), sampled=len(uv), seconds=row['seconds']), ensure_ascii=False), flush=True)
     assert scene.assert_frozen()
+    aggregate = dict(frame_count=len(rows), empty_O_frame_indices=[r['frame_index'] for r in rows if r['fixed_O_pixels']==0],
+                     total_fixed_O_pixels=sum(r['fixed_O_pixels'] for r in rows),
+                     total_sampled_O_pixels=sum(r['sampled_O_pixels'] for r in rows), arms={},
+                     pooling='Coverage pools every O pixel exactly. T statistics pool deterministic sampled pixels; at most512 per frame, so these are not full-O pixel-weighted population estimates.')
+    for arm in ('Pred', 'Ref'):
+        products, retained, reached = [], [], []
+        for row in rows:
+            sample = np.load(row['sample_arrays']['path'])
+            valid = np.isfinite(sample[f'{arm}_T_product'])
+            products.append(sample[f'{arm}_T_product'][valid])
+            retained.append(sample[f'{arm}_T_renderer_retained'][valid])
+            reached.append(sample[f'{arm}_renderer_reachable'][valid])
+        product = np.concatenate(products)
+        rt = np.concatenate(retained)
+        reach = np.concatenate(reached)
+        arm_rows = [r['arms'][arm] for r in rows]
+        aggregate['arms'][arm] = dict(valid_template_depth_samples=len(product),
+            all_O_template_uncovered=fraction(sum(r['all_O_template_uncovered']['numerator'] for r in arm_rows), aggregate['total_fixed_O_pixels']),
+            sampled_template_no_depth=fraction(sum(r['sampled_template_no_depth']['numerator'] for r in arm_rows), aggregate['total_sampled_O_pixels']),
+            T_HS_before_template=stats(product), renderer_retained_T_before_template=stats(rt),
+            renderer_terminated_before_template=fraction((~reach).sum(), len(reach)),
+            low_T={str(threshold):fraction((product<threshold).sum(), len(product)) for threshold in (.01, .1, .5)})
     sources = [Path(__file__), E/'code/aux_scene.py', SPARSE_SOURCE, MESH_SOURCE, NATIVE_SOURCE]
     if FORWARD_SOURCE.exists():
         sources.extend([FORWARD_SOURCE, FORWARD_SOURCE.parent/'auxiliary.h'])
@@ -402,7 +425,8 @@ def run(dev, output, maximum=512, hs_images=False, frame_indices=None):
                   frame_selection=selection, maximum_fixed_O_samples=maximum, HS_only_images_written=hs_images,
                   unchanged_frozen_scene=True, human_reference_read=False, camera1_read=False, learned_object_bank_read=False,
                   formal_training_steps=0, gradient_measurement='No learned data gradient is claimed; see training logs.',
-                  rows=rows, seconds=time.perf_counter()-start)
+                  rows=rows, aggregate=aggregate, status='completed', torch_cpu_threads=1,
+                  seconds=time.perf_counter()-start)
     save(output/'manifest.json', report)
     return report
 
