@@ -134,6 +134,9 @@ def export_render(dev,freeze):
     for asset in frozen['assets']:
         assert sha(asset['path'])==asset['sha256'],f'Frozen asset changed: {asset["path"]}'
     check=json.loads((RUN/'protocol'/f'behave_{dev}_native_render_check.json').read_text());assert check['status']=='passed'
+    for key in ['initialization','checkpoint']:
+        source=check['source_identity'][key]
+        assert sha(source['path'])==source['sha256'],f'S1 {key} changed since native consistency verification'
     base=RUN/'inputs'/f'behave_{dev}'
     evalm=json.loads((base/'evaluation_manifest.json').read_text());train=json.loads((base/'manifest.json').read_text())
     selected=np.unique(np.linspace(0,len(train['frames'])-1,min(16,len(train['frames']))).astype(int)).tolist()
