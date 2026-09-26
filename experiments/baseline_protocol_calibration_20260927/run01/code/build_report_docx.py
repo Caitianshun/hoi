@@ -161,9 +161,9 @@ class Report:
         self.figure_dir.mkdir(parents=True,exist_ok=True)
         self.image_sources=[];self.source_files=[];self.section_pages=[]
         self.doc=Document();sec=self.doc.sections[0]
-        sec.page_width=Inches(8.27);sec.page_height=Inches(11.69)
+        sec.page_width=Inches(8.5);sec.page_height=Inches(11)
         sec.top_margin=sec.bottom_margin=Inches(.59)
-        sec.left_margin=sec.right_margin=Inches(.64)
+        sec.left_margin=sec.right_margin=Inches(.755)
         sec.footer_distance=Inches(.22)
         self.width=6.99
         for name in ['Normal','Title','Subtitle','Heading 1','Heading 2','Caption','Footer']:
@@ -171,7 +171,7 @@ class Report:
             rf=st.element.get_or_add_rPr().get_or_add_rFonts()
             for key in ['ascii','hAnsi','eastAsia','cs']:rf.set(qn('w:'+key),FONT)
             st.paragraph_format.space_after=Pt(6)
-        self.doc.styles['Normal'].font.size=Pt(10)
+        self.doc.styles['Normal'].font.size=Pt(11)
         self.doc.styles['Normal'].paragraph_format.line_spacing=1.12
         self.doc.styles['Normal'].paragraph_format.widow_control=True
         self.doc.styles['Title'].font.size=Pt(20)
@@ -374,7 +374,7 @@ class Report:
             assert len(records)==(5 if dev=='dev1' else 4)
             data=[{**r,'report_label':f"{r['frame_id']}   GT | E0 complete S1 | Wu 4DGS"} for r in records]
             picture=self.contact(dev+'_all_E_full',data)
-            self.image(picture,'每行依次为真实图像 完整 S1 适配 4DGS。保留全部固定 E，完整视野没有按模型输出裁切；原高分辨率证据内嵌，可放大检查。',max_height=9.2)
+            self.image(picture,'每行依次为真实图像 完整 S1 适配 4DGS。保留全部固定 E，完整视野没有按模型输出裁切；原高分辨率证据内嵌，可放大检查。',max_height=8.35)
         self.page('全部保留帧的固定物体裁剪')
         records=sorted([r for r in figures if r['group']=='camera1_E'],key=lambda r:(r['dev'],r['time_seconds']))
         pic=self.contact('all_E_fixed_crops',[{**r,'report_label':f"{r['dev']}  {r['frame_id']}  GT | S1 | 4DGS"} for r in records],columns=2,mode='behave_crop')
@@ -442,7 +442,7 @@ class Report:
             d=read(self.run/'runs'/name/'run.json');assert d['status']=='completed'
             assert d['nominal_iterations']==17000 and d['optimizer_updates']==16999
             formal.append(d)
-            rows.append([label,f"{d['nominal_iterations']}\n{d['optimizer_updates']}",numeric(d['seconds'],1),f"{d['final_points']:,}\n{d['peak_points']:,}",numeric(d['peak_allocated_bytes']/2**30,3),numeric(Path(d['checkpoint']).stat().st_size/2**20,1)])
+            rows.append([label,f"{d['nominal_iterations']}\n{d['optimizer_updates']}",numeric(next(x['wall_seconds'] for x in ledger if x['label']==name),1),f"{d['final_points']:,}\n{d['peak_points']:,}",numeric(d['peak_allocated_bytes']/2**30,3),numeric(Path(d['checkpoint']).stat().st_size/2**20,1)])
         self.table(rows,[1.15,1.1,1.15,1.55,1.15,.89],8.2)
         temp=self.run/'protocol/temporary_steps.jsonl';temp_steps=len(temp.read_text().splitlines())
         self.p(f"三个正式运行共 {sum(r['nominal_iterations'] for r in formal):,} 个名义迭代、{sum(r['optimizer_updates'] for r in formal):,} 次优化器更新。锁定官方 coarse 3000 和 fine 14000 日程，保留官方最后 fine 步只反传而不更新的行为，因此每次 17000 对应 16999。临时检查实际 {temp_steps} 步，上限 200；临时产物不进入正式初始化。固定种子 12345，不按保留集表现补种子或选中间检查点。")
@@ -453,11 +453,11 @@ class Report:
             for p in self.costs['preprocessing']:
                 rows.append([p['name'],numeric(p.get('seconds'),2),p.get('device','NA'),p.get('note','')])
             self.table(rows,[1.5,.9,1.0,3.59],8.1,left_columns=(0,3))
-        for x in self.costs.get('totals',[]):self.p(f"{x['label']}：{x['value']} {x.get('unit','')}。{x.get('note','')}")
         if self.costs.get('CPU_evaluation_seconds'):
             values=self.costs['CPU_evaluation_seconds']
             self.p('统一 CPU 评价墙钟为 '+ '，'.join(f'{name} {numeric(seconds,1)} 秒' for name,seconds in values.items())+'；该项单独报告，不计入 GPU 任务预算。')
-        for note in self.costs.get('notes',[]):self.p(note)
+        for note in self.costs.get('notes',[])[2:4]:self.p(note)
+        self.p('检查点体积含Adam优化器、随机数和采样栈状态，用于同状态续跑；推理文件体积与allocated reserved及按PID显存分别保存在costs.json。早期短检查只计driver块，少量Python导入开销未测，不能把总墙钟称精确CUDA核耗时。','Caption')
         self.paras('incidents')
         self.p('每个数据协议先冻结计划终态及哈希，再前向导出和统一评价；训练没有加载保留 RGB。旧模型、失败输出和源缓存保留。技术性失败及修复按实际日志披露；任何预算截断都不能自动视作完整方法失败。')
 
@@ -466,7 +466,7 @@ class Report:
         self.paras('next_decision',True)
         self.paras('limitations',True)
         self.p('本轮不自动启动第四次正式训练，不继续注意力颜色扫参、位姿局部修补或扩大数据矩阵。后续只围绕证据支持的一个主要问题另定最小可证伪对照与预算。11 月 4 日核心结果冻结、11 月 5 日至 15 日连续 11 天集中写作窗口保持。')
-        self.doc.add_heading('代码与模型身份',2)
+        self.page('模型身份与复算来源')
         cfg=read(self.run/'code/experiment_config.json')
         self.p('Wu 4DGS 官方代码 commit  '+cfg['official_commit'],'Caption')
         launch=read(self.run/'protocol/launcher.json')
@@ -507,7 +507,7 @@ def main(args):
         rels=z.read('word/_rels/document.xml.rels').decode()
         assert 'TargetMode="External"' not in rels,'Report images must be embedded, no external image dependency'
     audit=dict(status='authored_awaiting_render_and_visual_QA',created_utc=datetime.now(timezone.utc).isoformat(),docx=ident(output),
-        planned_pages=14,sections=r.section_pages,embedded_media_count=len(media),image_sources=r.image_sources,figure_coverage=coverage,
+        planned_pages=15,sections=r.section_pages,embedded_media_count=len(media),image_sources=r.image_sources,figure_coverage=coverage,
         sources=[ident(p) for p in [args.content or run/'report_content.json',costpath,run/'existing_error_summary.json',
             run/'evaluation/comparison/summary.json',run/'evaluation/comparison/figure_manifest.json',run/'evaluation/hos_comparison/summary.json',
             run/'evaluation/comparison/metrics_per_frame.csv',run/'evaluation/comparison/input_fit.csv',
