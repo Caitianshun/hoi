@@ -315,7 +315,7 @@ class Report:
                     r=rows[i];selected.append({**r,'report_label':f"{dev} {r['frame_id']}  GT | S1 | 4DGS"})
             pic=self.contact(group+'_six_examples',selected,columns=2)
             self.image(pic,title+'。每事件按已固定预览列表的首 中 末索引选三帧，共六帧，不按质量选图；列顺序始终是真实图像 完整 S1 适配 4DGS。',max_height=3.8)
-        self.p('全部原训练 114 和 98 帧均已评价；这里仅压缩展示固定例子。完整输入视角图集、各帧指标与 paired E 图集保存在反馈包和本地评价目录。对 H 与 S 的欠拟合、重新显露区域和边界缺陷，应同时看完整图与物体局部，避免把背景收益直接称作交互改善。')
+        self.p('全部原训练 114 和 98 帧均已评价；这里仅压缩展示固定例子。反馈包保留固定规则预览、全部 paired E 图集与各帧指标，本地评价目录另存全部浮点前向。对 H 与 S 的欠拟合、重新显露区域和边界缺陷，应同时看完整图与物体局部，避免把背景收益直接称作交互改善。')
 
     def hos_results(self,H):
         self.page('移动单目 Backpack 外部校准')
@@ -415,6 +415,10 @@ def make_feedback(run,docx,figure_dir):
         p=run/rel
         if p.is_file():paths.append(p)
     paths.extend(sorted(figure_dir.glob('*.png')));paths.append(docx)
+    # Precomputed overview sheets include every fixed input-view preview and all
+    # paired E, while excluding unbounded raw-render/model payloads.
+    manifest=read(run/'evaluation/comparison/figure_manifest.json')
+    paths.extend(asset(r['sheet']) for r in manifest['contact_sheets'])
     # Raw ledger holds many samples. Compact rows preserve measured cost and origin.
     ledger=read(run/'protocol/gpu_cost_ledger.json')
     compact=[{k:v for k,v in row.items() if k not in ['sampled_process_memory','command']} for row in ledger]

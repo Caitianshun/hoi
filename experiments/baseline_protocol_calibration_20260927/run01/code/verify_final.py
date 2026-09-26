@@ -163,6 +163,8 @@ def verify_budget(training_freeze):
     labels = Counter(r["label"] for r in costs)
     for dataset in DATASETS:
         assert labels[dataset + "_formal"] == 1
+    assert sum(v for k, v in labels.items() if k.endswith("_formal")) == 3
+    assert {p.parent.name for p in (RUN / "runs").glob("*_formal/run.json")} == {x + "_formal" for x in DATASETS}
     for attempt in (RUN / "logs").glob("*/attempt.json"):
         a = read(attempt)
         assert a["status"] in ("completed", "failed") and "wall_seconds" in a
@@ -251,7 +253,10 @@ def verify_models(frozen):
     assert digest(h0) == frozen[str(h0.resolve())]
     state = torch.load(h0, map_location="cpu", weights_only=False)
     assert state["global_step"] == 200000
-    finite = tensors_finite(state); del state; gc.collect()
+    # Callback best-score sentinels are not model state and can legitimately be
+    # infinite; inspect every model tensor plus any saved optimizer states.
+    finite = tensors_finite({"model": state["state_dict"], "optimizer_states": state.get("optimizer_states", [])})
+    del state; gc.collect()
     models.append(dict(id="H0_Backpack", role="released_HOSNeRF_native", status="strict_loaded_and_rendered", released_step=200000,
                        terminal_state=identity(h0), finite_state=finite,
                        inference_files=[identity(h0)], inference_bytes=h0.stat().st_size,
@@ -260,13 +265,15 @@ def verify_models(frozen):
     return models
 
 
-def verify_render_manifests(evaluation_manifests):
+def verify_render_manifests(evaluation_manifests, frozen):
     result, h0_paths = {}, {}
     for method in ("E0", "4DGS"):
         for dev in ("dev1", "dev2"):
             p = RUN / "evaluation" / method / dev / "manifest.json"
             m = read(p); assert m["status"] == "completed" and m["optimization_steps"] == 0
             assert m["all_finals_freeze"]["sha256"] == digest(RUN / "protocol/finals.json")
+            checkpoint = m["source_checkpoint"]
+            assert frozen[str(check_asset(checkpoint).resolve())] == checkpoint["sha256"]
             expected = {"camera1_E": 5 if dev == "dev1" else 4,
                         "camera0_paired_E": 5 if dev == "dev1" else 4,
                         "camera0_full_training_fit": 114 if dev == "dev1" else 98}
@@ -285,6 +292,8 @@ def verify_render_manifests(evaluation_manifests):
     h1 = read(RUN / "evaluation/H1/manifest.json")
     assert h1["status"] == "completed" and h1["frame_count"] == len(h1["frames"]) == 284
     assert h1["all_finals_freeze"]["sha256"] == digest(RUN / "protocol/hos_finals.json")
+    checkpoint = h1["source_checkpoint"]
+    assert frozen[str(check_asset(checkpoint).resolve())] == checkpoint["sha256"]
     assert Counter(r["group"] for r in h1["frames"]) == {"test": 16, "input_fit": 268}
     assert len({r["frame_id"] for r in h1["frames"]}) == 284
     for row in h1["frames"]: check_asset(row["render"])
@@ -292,6 +301,7 @@ def verify_render_manifests(evaluation_manifests):
         path = RUN / "runs" / tag / "completion.json"
         m = read(path); assert m["status"] == "completed" and m["frames"] == count
         assert m["identity"]["strict_load"] and not m["identity"]["missing_keys"] and not m["identity"]["unexpected_keys"]
+        assert frozen[str(Path(m["identity"]["checkpoint"]).resolve())] == m["identity"]["checkpoint_sha256"]
         assert len(m["identity"]["render_ids"]) == count
         for fid in m["identity"]["render_ids"]:
             assert fid not in h0_paths
@@ -414,7 +424,7 @@ def main():
         report["budget"] = verify_budget(f)
         models = verify_models(frozen)
         report["models_checked"] = len(models)
-        render_counts, h1, h0_paths = verify_render_manifests(evaluation)
+        render_counts, h1, h0_paths = verify_render_manifests(evaluation, frozen)
         report["BEHAVE_render_manifests"] = render_counts
         report["HOS_renders"] = dict(H1=284, H0_first=1, H0_remaining=15)
         report["metrics"] = verify_metrics(evaluation, h1, h0_paths)
