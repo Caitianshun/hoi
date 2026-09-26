@@ -17,7 +17,7 @@ for dev in ['dev1','dev2']:
    p=E/'evaluation'/dev/e['frame_id']/f'{n}.png';img=cv2.imread(str(p));assert img is not None
    contour,_=cv2.findContours(O.astype(np.uint8),cv2.RETR_EXTERNAL,cv2.CHAIN_APPROX_SIMPLE);cv2.drawContours(img,contour,-1,(255,255,0),1)
    im=Image.fromarray(img[...,::-1]);full.paste(im,(j*640,i*510+35));df.text((j*640+10,i*510+516),e['frame_id'],font=font,fill='black')
-   crop=im.crop(bounds);crop.thumbnail((210,185));grid.paste(crop,(j*cw+(cw-crop.width)//2,i*ch+40));dr.text((j*cw+8,i*ch+222),e['frame_id'],font=small,fill='black')
+   crop=im.crop(bounds);crop.thumbnail((210,185));grid.paste(crop,(j*cw+(cw-crop.width)//2,i*ch+40));dr.text((j*cw+8,i*ch+222),f"t{e['query_time_seconds']:g}",font=small,fill='black')
    if n in names[1:-1]:
     val=lookup[dev,e['query_time_seconds'],n]['metrics']['object']['psnr_db'];dr.text((j*cw+82,i*ch+222),f'{val:.2f}dB',font=small,fill='black')
  grid.save(out/f'{dev}_crop.png');full.save(out/f'{dev}_full.png')
@@ -27,9 +27,9 @@ for dev in ['dev1','dev2']:
   data=np.load(E/'evaluation'/dev/e['frame_id']/'support.npz');lab=np.load(e['regions']['path'])['entity_labels'];img=np.full((480,640,3),255,np.uint8);img[lab==2]=pal[data['support_state'][lab==2]];sg.paste(Image.fromarray(img).resize((320,240)),(j*320,25));ds.text((j*320+10,5),e['frame_id'],font=small,fill='black')
  sg.save(out/f'{dev}_support.png')
  # Canonical IDs uniformly sampled, at most8, including fallbacks.
- audit=json.loads((E/'runs'/f'{dev}_F2/source_audit.json').read_text());meta=json.loads((A/'inputs'/dev/'input_manifest.json').read_text());canvas=Image.new('RGB',(1150,185*len(audit)),'white');dc=ImageDraw.Draw(canvas)
+ audit=json.loads((E/'runs'/f'{dev}_F2/source_audit.json').read_text());meta=json.loads((A/'inputs'/dev/'input_manifest.json').read_text());heights=[170 if len(r['source_times']) else 48 for r in audit];canvas=Image.new('RGB',(max(600,140*max(len(r['source_times']) for r in audit)),sum(heights)),'white');dc=ImageDraw.Draw(canvas)
  for rowi,r in enumerate(audit):
-  base=rowi*185;dc.text((4,base+4),f"ID {r['local_id']} face {r['face']}"+(' FALLBACK' if r['fallback'] else ''),font=font,fill='black')
+  base=sum(heights[:rowi]);dc.text((4,base+4),f"ID {r['local_id']} face {r['face']}"+(' FALLBACK' if r['fallback'] else ''),font=font,fill='black')
   for j,(t,pix,w) in enumerate(zip(r['source_times'],r['source_pixels'],r['weights'])):
    rgb=cv2.imread(meta['frame_paths'][t])[...,::-1];y,x=divmod(pix,640);patch=Image.fromarray(rgb).crop((x-12,y-12,x+13,y+13)).resize((112,112));canvas.paste(patch,(j*140+6,base+32));dr2=ImageDraw.Draw(canvas);dr2.line((j*140+56,base+88,j*140+68,base+88),fill='cyan',width=2);dr2.line((j*140+62,base+82,j*140+62,base+94),fill='cyan',width=2);dr2.text((j*140+5,base+150),f"t{meta['timestamp_seconds'][t]:g} w{w:.2f}",font=small,fill='black')
  canvas.save(out/f'{dev}_sources.png')
