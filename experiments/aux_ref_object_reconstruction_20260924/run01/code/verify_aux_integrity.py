@@ -328,9 +328,19 @@ class Verifier:
             demand(np.array_equal(export[key], arr(final_state[key])), 'Export differs from checkpoint: ' + key)
         offset = .005 * final_state['offset'] / torch.sqrt(1 + final_state['offset'].square().sum(-1, keepdim=True))
         close(export['local_offset_m'], offset, 'Export offset mismatch')
-        close(export['scale_m'], final_state['log_scale'].clamp(-9, 0).exp(), 'Export scale mismatch')
-        close(export['opacity'], final_state['opacity_logit'].sigmoid(), 'Export opacity mismatch')
-        close(export['colors'], final_state['color_logit'].sigmoid(), 'Export color mismatch')
+        # Export was computed on CUDA; permit at most a few float32 ULPs for
+        # independently recomputed CPU nonlinear functions, never pose alignment.
+        close(export['scale_m'], final_state['log_scale'].clamp(-9, 0).exp(), 'Export scale mismatch', atol=1e-7)
+        close(export['opacity'], final_state['opacity_logit'].sigmoid(), 'Export opacity mismatch', atol=1e-7)
+        close(export['colors'], final_state['color_logit'].sigmoid(), 'Export color mismatch', atol=1e-7)
+        quaternion = arr(final_state['quat']).astype(np.float64)
+        demand(np.all(np.linalg.norm(quaternion, axis=1) > 0), 'Zero object quaternion')
+        w, x, y, z = quaternion.T
+        two = 2 / np.sum(quaternion * quaternion, axis=1)
+        rotation = np.stack([1-two*(y*y+z*z), two*(x*y-z*w), two*(x*z+y*w),
+                             two*(x*y+z*w), 1-two*(x*x+z*z), two*(y*z-x*w),
+                             two*(x*z-y*w), two*(y*z+x*w), 1-two*(x*x+y*y)], axis=1).reshape(-1, 3, 3)
+        close(export['canonical_frame'], rotation, 'Export local Gaussian orientation mismatch', atol=5e-7)
         anchors = arr(torch.as_tensor(init['object_anchors']).float())[export['anchor_id']]
         close(export['anchor_canonical_m'], anchors, 'Export anchor mismatch')
         close(export['centres_canonical_m'], anchors + arr(offset), 'Export canonical centre mismatch', atol=1e-7)
