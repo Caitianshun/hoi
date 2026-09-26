@@ -24,14 +24,14 @@ def setup(dev):
  labels=torch.from_numpy(np.load(mask_path)['entity_labels'].astype(np.int64)).cuda()
  assert labels.shape==(len(rgb),rgb.shape[2],rgb.shape[3])
  masks=F.one_hot(labels,3).permute(0,3,1,2).float();interior=-F.max_pool2d(-masks,5,1,2)
- scene=AuxObjectScene(dev,meta['timestamps_seconds'],device='cuda');scene.assert_frozen()
+ scene=AuxObjectScene(dev,meta['timestamp_seconds'],device='cuda');scene.assert_frozen()
  K=torch.tensor(meta['K'],device='cuda',dtype=torch.float32);w2c=torch.linalg.inv(scene.c2w)
  return scene,meta,meta_path,rgb,labels,masks,interior,K,w2c
 
 def ref_motion(meta,arm):
  if arm=='Pred':return None
- path=Path(meta['reference_object_motion']);assert sha_file(path)==meta['reference_object_motion_sha256']
- data=np.load(path);assert np.array_equal(data['times'],np.asarray(meta['timestamps_seconds']))
+ path=Path(meta['reference_object_motion']);assert sha_file(path)==meta['reference_motion_sha256']
+ data=np.load(path);assert np.array_equal(data['times'],np.asarray(meta['timestamp_seconds']))
  return torch.tensor(data['R_world'],device='cuda',dtype=torch.float32),torch.tensor(data['t_world'],device='cuda',dtype=torch.float32)
 
 def render(scene,t,K,w2c,H,W,motion):
