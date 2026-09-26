@@ -454,6 +454,9 @@ class Report:
                 rows.append([p['name'],numeric(p.get('seconds'),2),p.get('device','NA'),p.get('note','')])
             self.table(rows,[1.5,.9,1.0,3.59],8.1,left_columns=(0,3))
         for x in self.costs.get('totals',[]):self.p(f"{x['label']}：{x['value']} {x.get('unit','')}。{x.get('note','')}")
+        if self.costs.get('CPU_evaluation_seconds'):
+            values=self.costs['CPU_evaluation_seconds']
+            self.p('统一 CPU 评价墙钟为 '+ '，'.join(f'{name} {numeric(seconds,1)} 秒' for name,seconds in values.items())+'；该项单独报告，不计入 GPU 任务预算。')
         for note in self.costs.get('notes',[]):self.p(note)
         self.paras('incidents')
         self.p('每个数据协议先冻结计划终态及哈希，再前向导出和统一评价；训练没有加载保留 RGB。旧模型、失败输出和源缓存保留。技术性失败及修复按实际日志披露；任何预算截断都不能自动视作完整方法失败。')
