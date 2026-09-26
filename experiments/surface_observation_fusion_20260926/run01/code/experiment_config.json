@@ -1,0 +1,105 @@
+{
+  "seed": 12345,
+  "matrix": [
+    {
+      "dev": "dev1",
+      "variant": "B1",
+      "steps": 8000
+    },
+    {
+      "dev": "dev1",
+      "variant": "F1",
+      "steps": 2000
+    },
+    {
+      "dev": "dev1",
+      "variant": "F2",
+      "steps": 2000
+    },
+    {
+      "dev": "dev2",
+      "variant": "B1",
+      "steps": 8000
+    },
+    {
+      "dev": "dev2",
+      "variant": "F1",
+      "steps": 2000
+    },
+    {
+      "dev": "dev2",
+      "variant": "F2",
+      "steps": 2000
+    }
+  ],
+  "precheck_per_run_max": 8,
+  "precheck_total_max": 48,
+  "formal_total_max": 24000,
+  "gpu_seconds_max": 14400,
+  "cache": {
+    "same_face_radius_m": 0.005,
+    "mask_erosion": 5,
+    "reliability": "clip(distance_px/5,.1,1)*exp(-0.5*(canonical_distance/.005)^2)",
+    "K": 8,
+    "patch": 3,
+    "target_excluded_before_aggregation": true
+  },
+  "B1": {
+    "iso_rgb": 0.5,
+    "iso_alpha": 0.1,
+    "cap": 6000,
+    "control_steps": [
+      3000,
+      3500,
+      4000,
+      4500,
+      5000,
+      5500,
+      6000,
+      6500,
+      7000
+    ]
+  },
+  "F": {
+    "steps": 2000,
+    "lr": 0.001,
+    "betas": [
+      0.9,
+      0.999
+    ],
+    "eps": 1e-08,
+    "weight_decay": 0,
+    "QK_dimension": 32,
+    "base": "old RR/B0",
+    "all_original_parameters_frozen": true
+  },
+  "B1_gate": {
+    "O_PSNR_mean": 0.5,
+    "O_delta_median": 0,
+    "O_SSIM": -0.005,
+    "full_PSNR": -0.2,
+    "contribution_fraction": -0.05,
+    "supported_PSNR": -0.2,
+    "supported_min_pixels": 100,
+    "supported_min_frames": 2
+  },
+  "F2_gate": {
+    "vsF1_O_PSNR": 0.2,
+    "delta_median": 0,
+    "vsF0andB0_PSNR": 0,
+    "SSIM": -0.005,
+    "LPIPS": 0.005,
+    "full_PSNR": -0.1
+  },
+  "descriptor_dimensions": [
+    68,
+    58
+  ],
+  "parameters": {
+    "F1": 4096,
+    "F2": 4064,
+    "MLP_hidden": 32
+  },
+  "mapping": "unique closest inherited face; distance <=5mm; nearest/second difference >1e-7m; no adjacent face reassignment",
+  "historical_base_commit": "ad353d58f97f7e2e31c816d7b991583d39222ca5"
+}
