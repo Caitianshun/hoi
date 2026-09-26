@@ -258,6 +258,14 @@ def main():
                        blockers=['native_RGB_masks_and_hashes_not_yet_frozen',
                                  'RGB_only_S1_motion_native_time_evaluation_not_yet_frozen',
                                  'native_E_regions_and_image_identity_not_yet_frozen'])
+    copied, fetched = {}, {}
+    for row in rows:
+        for item in row['native_assets'].values():
+            if str(OUT / 'inputs/native') not in item['path']:
+                continue
+            source = item['source']
+            target = copied if source.get('reused_from') else fetched
+            target[source['member']] = source
     official_sources = ['tools/parse_obj_pose.py', 'tools/video2images.py', 'data/video_reader.py', 'data/frame_data.py']
     result = dict(protocol_id='AUX_REF_OBJECT', created_utc=datetime.datetime.now(datetime.timezone.utc).isoformat(),
                   status='raw_native_identity_audited_training_gate_pending', script=artifact(__file__),
@@ -269,6 +277,9 @@ def main():
                   official_conversion_sources=[artifact(ROOT / 'data/BEHAVE/source_metadata/official_code' / p) for p in official_sources],
                   acquisition=dict(requested=args.acquire, allowed_unique_members=len(jobs), missing_members_before_run=len(missing_jobs),
                                    estimated_missing_range_bytes=predicted_transfer, failures=failures,
+                                   isolated_native_local_copy_members=len(copied),
+                                   isolated_native_fetched_members=len(fetched),
+                                   cumulative_new_HTTP_range_bytes=sum(s['transferred_bytes'] for s in fetched.values()),
                                    no_human_depth_texture_or_fit_mask_downloads=True),
                   forbidden_shortcuts=['old_14_9_nearest_reference_slots_as_labels', 'high_frequency_fit01-smooth_silently_as_fit01',
                                        'reference_interpolation_or_extrapolation', 'nearest_Ref_copy', 'old_raw_video_E_image_identity_relabel'],
