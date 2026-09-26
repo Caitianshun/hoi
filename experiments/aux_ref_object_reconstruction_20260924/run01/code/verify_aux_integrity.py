@@ -328,11 +328,17 @@ class Verifier:
             demand(np.array_equal(export[key], arr(final_state[key])), 'Export differs from checkpoint: ' + key)
         offset = .005 * final_state['offset'] / torch.sqrt(1 + final_state['offset'].square().sum(-1, keepdim=True))
         close(export['local_offset_m'], offset, 'Export offset mismatch')
-        # Export was computed on CUDA; permit at most a few float32 ULPs for
-        # independently recomputed CPU nonlinear functions, never pose alignment.
-        close(export['scale_m'], final_state['log_scale'].clamp(-9, 0).exp(), 'Export scale mismatch', atol=1e-7)
-        close(export['opacity'], final_state['opacity_logit'].sigmoid(), 'Export opacity mismatch', atol=1e-7)
-        close(export['colors'], final_state['color_logit'].sigmoid(), 'Export color mismatch', atol=1e-7)
+        # Compare a float32 CUDA export to float64 mathematical recomputation.
+        # Comparing two float32 sigmoid implementations instead adds independent
+        # CPU and CUDA rounding errors; the original 1e-7 threshold is retained.
+        scale_reference = final_state['log_scale'].double().clamp(-9, 0).exp()
+        opacity_reference = final_state['opacity_logit'].double().sigmoid()
+        color_reference = final_state['color_logit'].double().sigmoid()
+        close(export['scale_m'], scale_reference, 'Export scale mismatch', atol=1e-7)
+        close(export['opacity'], opacity_reference, 'Export opacity mismatch', atol=1e-7)
+        close(export['colors'], color_reference, 'Export color mismatch', atol=1e-7)
+        nonlinear_errors = {name: float(np.max(np.abs(export[name] - arr(reference))))
+                            for name, reference in [('scale_m', scale_reference), ('opacity', opacity_reference), ('colors', color_reference)]}
         quaternion = arr(final_state['quat']).astype(np.float64)
         demand(np.all(np.linalg.norm(quaternion, axis=1) > 0), 'Zero object quaternion')
         w, x, y, z = quaternion.T
@@ -357,6 +363,8 @@ class Verifier:
                 'zero_data_gradient_steps': 8000 - effective, 'topology_event_count': len(events),
                 'maximum_object_points': max_points, 'final_object_points': len(stable),
                 'maximum_checked_canonical_offset_m': max(maximum_offset, maximum_export_offset),
+                'nonlinear_export_check': {'reference_precision': 'float64', 'unchanged_absolute_tolerance': 1e-7,
+                                           'maximum_absolute_errors': nonlinear_errors},
                 'shared_initial_object_identity': initial['object'], 'frozen_scene_identity': initial['frozen'],
                 'frame_schedule_sha256': config['frame_schedule']['sha256'],
                 'empty_RGB_object_mask_samples_retained': empty_samples,
@@ -400,6 +408,14 @@ def main():
               'created_utc': datetime.datetime.now(datetime.timezone.utc).isoformat(),
               'CPU_only': True, 'GPU_used': False, 'training_performed': False,
               'verifier': {'path': str(Path(__file__).resolve()), 'sha256': sha(__file__)}}
+    previous_path = E / 'protocol/integrity.json'
+    if not args.static_check and previous_path.exists():
+        previous = load(previous_path)
+        attempts = list(previous.get('previous_attempts', []))
+        if previous.get('status') == 'failed':
+            attempts.append({k: previous.get(k) for k in ['status', 'created_utc', 'error', 'traceback', 'verifier']} |
+                            {'previous_report_sha256': sha(previous_path)})
+        report['previous_attempts'] = attempts
     try:
         report['startup_check'] = verifier.context()
         if args.static_check:
