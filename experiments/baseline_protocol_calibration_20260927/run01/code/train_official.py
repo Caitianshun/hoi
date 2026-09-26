@@ -39,7 +39,9 @@ class Runtime:
         self.resume = torch.load(resume, map_location='cpu', weights_only=False) if resume else None
         self.last_checkpoint = Path(resume) if resume else None
         self.allowed_seconds = float(os.environ.get('V3_REMAINING_GPU_SECONDS', 12 * 3600))
-        self.stage = None; self.step = 0; self.attempted = 0
+        self.stage = self.resume['stage'] if self.resume else None
+        self.step = self.resume['iteration'] if self.resume else 0
+        self.attempted = 0
         self.peak_points = 0; self.gradient_checks = {}; self.loss_rows = []
         self.prior_steps = self.resume.get('total_nominal_steps', 0) if self.resume else 0
         if self.resume:
@@ -174,6 +176,8 @@ def run(a):
                    GPU='physical1 RTX3090', check=a.check,
                    adapter_sha256=sha(Path(__file__).with_name('adapter_4dgs.py')),
                    training_wrapper_sha256=sha(__file__),
+                   stage_ends={'coarse':a.coarse_steps if a.check else opt.coarse_iterations,
+                               'fine':a.fine_steps if a.check else opt.iterations},
                    official_default_sha256=sha(UPSTREAM/'arguments/hypernerf/default.py'))
         if a.resume:
             assert json.loads((output/'effective_config.json').read_text()) == cfg
