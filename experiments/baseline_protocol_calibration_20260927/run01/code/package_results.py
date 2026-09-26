@@ -32,7 +32,7 @@ def costs():
                       final_inference_files=[identity(p) for p in sorted((base/'point_cloud/fine_iteration_14000').glob('*')) if p.is_file()])
         runs.append(record)
     prep=[]
-    init=RUN/'inputs/hos_backpack/initialization_audit.json'
+    init=RUN/'inputs/hos_backpack/initialization.json'
     if init.exists():
         r=read(init)
         for k in ['wall_seconds','seconds','elapsed_seconds']:
