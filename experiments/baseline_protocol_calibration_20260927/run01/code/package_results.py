@@ -32,7 +32,7 @@ def costs():
                       final_inference_files=[identity(p) for p in sorted((base/'point_cloud/fine_iteration_14000').glob('*')) if p.is_file()])
         runs.append(record)
     prep=[]
-    init=RUN/'protocol/hos_initialization_provenance.json'
+    init=RUN/'inputs/hos_backpack/initialization_audit.json'
     if init.exists():
         r=read(init)
         for k in ['wall_seconds','seconds','elapsed_seconds']:
@@ -55,7 +55,7 @@ def costs():
               'H0使用既有官方200000步检查点，不在本轮从零训练；下载、解压及环境适配是工程成本。',
               'CPU统一评价与DOCX排版不消耗GPU预算，但墙钟成本单列。'],
        CPU_evaluation_seconds={
-          'BEHAVE':read(RUN/'evaluation/comparison/evaluation_run.json').get('wall_seconds'),
+          'BEHAVE':read(RUN/'evaluation/comparison/evaluation_run.json')['seconds'],
           'HOS':read(RUN/'evaluation/hos_comparison/summary.json')['wall_seconds']},
        source=identity(RUN/'protocol/gpu_cost_ledger.json'))
     assert total<43200
