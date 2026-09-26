@@ -24,14 +24,18 @@ def run(freeze,output):
     for a in frozen['assets']:assert sha(a['path'])==a['sha256'],a['path']
     hm=json.loads((RUN/'evaluation/H1/manifest.json').read_text());assert hm['status']=='completed' and hm['all_finals_freeze']['sha256']==sha(freeze)
     assert hm['frame_count']==284 and len(hm['frames'])==284
-    H0={};h0sources=[]
+    H0={};h0sources=[];native_h0_rows=[];checkpoint_identity=None
     for tag,count in [('H0_native_first',1),('H0_native_remaining',15)]:
         base=RUN/'runs'/tag;c=json.loads((base/'completion.json').read_text());assert c['status']=='completed' and c['frames']==count
         h0sources.append(identity(base/'completion.json'))
+        if checkpoint_identity is None:checkpoint_identity=c['identity']['checkpoint_sha256']
+        assert checkpoint_identity==c['identity']['checkpoint_sha256']
+        native_h0_rows+=json.loads((base/'per_frame.json').read_text())
         for fid in c['identity']['render_ids']:
             assert fid not in H0;H0[fid]=base/(fid+'.npz')
     train=json.loads((RUN/'inputs/hos_backpack/manifest.json').read_text());ev=json.loads((RUN/'inputs/hos_backpack/evaluation_manifest.json').read_text())
     assert set(H0)=={r['frame_id'] for r in ev['frames']}
+    assert len(native_h0_rows)==16 and {r['frame_id'] for r in native_h0_rows}==set(H0), 'H0 native metric IDs must merge once, without duplicates'
     index={(r['group'],r['frame_id']):r for r in hm['frames']};assert len(index)==284
     assert output.exists() is False,f'Refuse overwrite {output}';output.mkdir(parents=True)
     # Hash all arrays before decoding any prediction or GT; this records complete
@@ -85,6 +89,8 @@ def run(freeze,output):
     # and historical stage split uncertainty, although image IDs align.
     summary=dict(status='completed',results=summaries,H0_identity='official released complete200000 checkpoint; native human/camera/state preprocessing; historical exact frame protocol absent',H1_identity='one official Wu4DGS run; train-RGB-only triangulation and color; published all-video camera source separately allowed',direct_fair_H0_H1_delta=None,
         split='complete-stage16 test IDs; distinct scene-stage split; no scene substitution',
+        time_boundary_diagnostic=dict(frame_id='00000',H1_normalized_time=-1/282,H0_native_time=0.0,H1_status='outside train range1..283; extrapolation, retained',metrics=[r for r in rows if r['group']=='test' and r['frame_id']=='00000' and r['region']=='full']),
+        native_H0_metrics=dict(frames=len(native_h0_rows),PSNR_frame_mean=float(np.mean([r['PSNR'] for r in native_h0_rows])),SSIM_conventional_2D_frame_mean=float(np.mean([r['SSIM'] for r in native_h0_rows])),LPIPS_VGG_scalar_frame_mean=float(np.mean([r['LPIPS'] for r in native_h0_rows])),note='Native renderer VGG LPIPS distinct from unified AlexNet spatial; native SSIM adapted to HxWx3 data_range1 as documented'),
         metric_definition=dict(PSNR='clipped floating RGB MSE; frame mean and pooled shown',SSIM='fullimage7x7 map; region mean; data_range1',LPIPS='historical cached AlexNetv0.1 spatial-map mean, same unified metric as BEHAVE; not native H0VGG scalar',regions='published mask>=128 gives combined foreground and complement background; no individual human/object labels',input_fit='all268 train frames; reconstruction not generalization'),
         lpips=lpips_info,figure_count=len(figures),figures=figures,optimization_steps=0,GPU_used=False,wall_seconds=time.monotonic()-start,sources=h0sources+[identity(freeze),identity(RUN/'evaluation/H1/manifest.json')])
     save_json(output/'raw_ranges.json',raw_ranges);save_json(output/'summary.json',summary);print(json.dumps({k:summary[k] for k in ['status','results','wall_seconds']},indent=2))
