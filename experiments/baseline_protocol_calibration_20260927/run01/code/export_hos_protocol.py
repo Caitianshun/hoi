@@ -55,6 +55,7 @@ def export(args):
     common=dict(schema_version=1,dataset='HOSNeRF',scene='Backpack',
         protocol='official complete-stage human-object split',
         resolution=list(size),resize='none; native 1277x718',
+        time_seconds_field_units='nominal source frame index, not measured SI seconds; field name retained for adapter compatibility',
         camera_convention='OpenCV +x right +y down +z forward; published scaleworld',
         camera_source=dict(path=str(camera_path),sha256=sha(camera_path),
             status='published full-video cameras; raw SfM image provenance absent; not asserted train-only'),
