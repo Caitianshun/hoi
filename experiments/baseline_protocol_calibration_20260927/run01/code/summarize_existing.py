@@ -164,7 +164,7 @@ def build(root, out):
     assert regions["status"] == "frozen" and regions["role"] == "evaluation_only"
     lookup = {(r["dev"], r["sample_id"]): r for r in regions["rows"]}
     assert len(historical) == 45 and len(lookup) == 9
-    sources = [identity(region_path), identity(metrics_path)]
+    sources = [identity(Path(__file__)), identity(region_path), identity(metrics_path)]
     for name in ("summary.json", "HS_metrics.json", "paired_differences.json"):
         sources.append(identity(v2 / "evaluation" / name))
     cache, rows, checks = {}, [], []
@@ -293,6 +293,7 @@ def write_report(out, summary, rows):
     for key, row in a.items():
         text.append(f"| {row['dev']} | {row['variant']} | {row['full']['mean_frame_psnr_db']:.6f} | {row['full']['pooled_psnr_db']:.6f} | {100*row['H']['pooled_error_share']:.4f} | {100*row['O']['pooled_error_share']:.4f} | {100*row['S']['pooled_error_share']:.4f} | {row['O']['mean_frame_psnr_db']:.6f} | {row['O']['pooled_psnr_db']:.6f} | {row['algebraic_O_zero']['pooled_full_gain_db']:.6f} |")
     text += ["", "这里的 SSE 定义为逐像素 RGB 均方误差的总和。全图 MSE＝(SSE_H＋SSE_O＋SSE_S)/整图像素数；PSNR＝−10 log10(MSE)。不可直接按像素数加权 dB。逐帧均值先算每帧 dB 再等权平均；pooled 指先把误差与像素累加再转 dB，区域面积变化时差异尤其明显。", "",
+             "例如木椅 B1−B0 的 O 逐帧均值为 +0.063737 dB，而 O pooled 差为 −0.048599 dB：这反映两种聚合对不同面积/误差帧的权重不同，不改变 V2 预声明的逐帧门槛或收口结论。", "",
              "O 误差归零仅是代数诊断：令固定 O 中误差为零、保留 H/S 原误差。它不是实际模型结果，也不是物体改进的物理上界，因为真实物体更新可能影响 O 外像素。HS-only 是真实去物体渲染，与这一诊断也不同。", "",
              "## 训练相机拟合与时间集合", "",
              "下表只汇总已保存 camera0 结果，属于训练集拟合。B0 仅保存 O；B1/F0/F1/F2 保存 full/O；所有版本缺 H/S，均记 NA，不填零。重建 MSE 由已存 PSNR 反推，并非重新验证浮点前向。", "",
