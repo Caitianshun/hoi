@@ -41,7 +41,7 @@ def table(rows,widths):
         if i==0:
             el=OxmlElement('w:tblHeader');t.rows[0]._tr.get_or_add_trPr().append(el)
         el=OxmlElement('w:cantSplit');t.rows[-1]._tr.get_or_add_trPr().append(el)
-    p('')
+    gap=p('');gap.paragraph_format.space_after=Pt(3);gap.paragraph_format.line_spacing=Pt(3)
 def image(path,width):
     q=p('');q.alignment=WD_ALIGN_PARAGRAPH.CENTER;q.paragraph_format.space_after=Pt(3)
     shape=q.add_run().add_picture(str(path),width=Inches(width));shape._inline.docPr.set('descr',path.stem.replace('_',' '))
@@ -53,8 +53,8 @@ p('本轮要区分两个变化：运动不准会直接把同一物体投到错�
 table([['协议','训练条件','物体运动来源','其余可训练参数'],['AUX_REF_OBJECT','Pred','旧S1最终RGB预测','仅新物体高斯属性'],['AUX_REF_OBJECT','Ref','发布fit01物体拟合','与Pred完全相同']],[1.45,.7,2.25,2.15])
 p('Ref是额外信息条件，不是新算法，也不是无噪声真值；发布拟合可能利用多视角或RGB-D。P0主协议仍不读发布姿态。发布人体拟合、传感深度、纹理和camera1 RGB均不用于训练；发布人体fit02仅用于原有评价区域的栅格化。')
 table([['协议','事件','训练S','评价E','正式步数'],['AUX_REF_OBJECT','箱体','12帧','5帧','Pred与Ref各8000'],['AUX_REF_OBJECT','木椅','9帧','4帧','Pred与Ref各8000']],[1.45,1.0,1.05,1.05,2.0])
-p('S使用时间窗内可用的官方原生camera0图像与同采集样本物体参数；E是S中已有camera1的对应采集组。没有把旧14/9个近邻评分槽变成训练标签。只补下载21个物体参数和9张木椅camera0图像，共约1.74 MB；每项CRC与SHA256校验。')
-p('真实曝光时间和组内同步误差未随稀疏样本提供，记为未知。Pred在原RGB预测端点之间按名义样本时间求值并登记权重，不外推；Ref没有插值、最近复制、ICP或尺度对齐。官方中心化和R/t转换复算最大顶点差约0.22微米，验证的是文件转换一致性，不是拟合精度。','Caption')
+p('S由原生camera0与同采集样本物体参数组成，E取其中已有camera1的采集组。没有把旧14/9个近邻评分槽变成训练标签；全部输入文件已核验身份。')
+p('官方采集组身份确定，真实曝光及组内同步误差未知。Pred仅在端点内插值；Ref无插值或最近复制，无ICP或尺度对齐。坐标转换一致性核验通过，不等于拟合精度已获验证。','Caption')
 p('共同新物体初值为4096个未训练高斯，旧物体外观未加载；初始颜色仍可能受旧Pred投影采色偏置。两臂同seed 12345、同帧顺序、同损失和6000点上限。只更新静态5mm范围附着、颜色、不透明度、尺度和方向；全部运动、ordinary track与运动先验关闭。')
 
 page('统一保留视角的四格结果')
@@ -90,8 +90,7 @@ for key,r in data['runs'].items():
  rows.append(['AUX_REF_OBJECT',key.replace('dev1','箱体').replace('dev2','木椅'),str(r['points']),str(r['gradient_steps']),f'{r["max_scale_mm"]:.2f}',f'{r["max_offset_mm"]:.3f}'])
 table(rows,[1.35,1.15,.65,1.6,1.05,.75])
 p(data['representation_interpretation'])
-p('每步RGB/实例项梯度和静态正则梯度分开记录。非零数据梯度只说明观测项能更新参数，不能单凭这个计数证明更新方向正确或同一材料表面得到支持。箱体t21和木椅t8的冻结SAM2物体标签为空；仍保留并按原分母计算，未补步。')
-p('共同H/S-only图、规范位置、锚点与子代关系、颜色、opacity、尺度、方向、5mm偏移，以及每步固定O贡献均已导出。可信局部材料对应未测，未建立新匹配器。','Caption')
+
 
 page('固定场景限制与研究决定')
 p(data['fixed_scene_interpretation'])
@@ -100,11 +99,17 @@ for key,r in data['transmittance'].items():
  rows.append(['AUX_REF_OBJECT',key.replace('dev1','箱体').replace('dev2','木椅'),str(r['valid_samples']),f'{100*r["low_T_fraction"]:.1f}%' if r['low_T_fraction'] is not None else '未测',f'{100*r["uncovered_O_fraction"]:.1f}%' if r['uncovered_O_fraction'] is not None else '未测'])
 table(rows,[1.4,1.35,1.35,1.15,1.3])
 p('透射率T表示物体模板第一表面深度之前尚未被冻结人体/背景遮住的光路比例。每帧最多512个确定性固定O像素，T低于0.1的分母为其中有模板深度的样本；模板未覆盖率用全部O像素单列。按高斯中心深度排序和原alpha截断复算，不是把H/S整体alpha当成物体前遮挡。模板深度与实际高斯支撑并不完全等价，CPU核数值检查不能消除该几何近似。','Caption')
+p('每步RGB/实例项梯度和静态正则梯度分开记录。非零数据梯度只说明观测项能更新参数，不能单凭这个计数证明更新方向正确或同一材料表面得到支持。箱体t21和木椅t8的冻结SAM2物体标签为空；仍保留并按原分母计算，未补步。')
+p('共同H/S-only图、规范位置、锚点与子代关系、颜色、opacity、尺度、方向、5mm偏移，以及每步固定O贡献均已导出。可信局部材料对应未测，未建立新匹配器。','Caption')
 D.add_heading('本轮决定',level=2);p(data['decision_text'])
-D.add_heading('实测成本与复现',level=2)
+page('实测成本和复算记录')
 p(data['cost_text'])
 p('新增位姿求解0次；正式高斯训练4次，每次8000步，预检查临时两条件各8步且未带入正式训练；独立事件0条。全部运动冻结。没有S2、S3、注意力、接触、新骨干、追加种子或全三支重训。')
 p('目录 experiments/aux_ref_object_reconstruction_20260924/run01 保存PROTOCOL、逐样本清单、frozen_aux、实际检查点、逐步梯度、四格逐帧指标、诊断、REPRODUCE和NEXT_DECISION。协议和结果每张表均标AUX_REF_OBJECT；模型和数据不随代码上传。')
+D.add_heading('完整性和独立复算',level=2)
+p('211项资产身份一致，16个阶段检查点仅含物体五类优化参数，人体背景与RGB运动冻结，日程及初值配对相同。历史8份核心源码和4份初始化及旧S1检查点未变。36份float渲染独立复算PSNR、SSIM和LPIPS，135条逐帧差值及所有汇总一致。')
+p('验收曾因CPU与CUDA的float32 sigmoid双重舍入触发1e−7断言，失败记录保留；只将验收参考改为float64计算，原容差不变。训练、冻结输入与模型输出均未修改。正式四次训练与评价无失败或重跑。')
+p('新增原生数据仅21份物体fit01参数和9张camera0图像，约1.74 MB；模板中心化及R/t转换复算最大顶点差约0.22微米。该微小差值证明文件转换一致，不能解释为发布拟合接近真实几何的精度。','Caption')
 p('阶段目标9月27日前完成；10月7日前收敛核心问题、11月4日冻结结果、11月5—15日完整写作窗口不变。本轮输入较强且只验证两个已开发事件，不能外推为跨序列泛化、长遮挡恢复或运动接触创新。','Caption')
 footer=s.footer.paragraphs[0];footer.alignment=WD_ALIGN_PARAGRAPH.RIGHT
 run=footer.add_run();fld=OxmlElement('w:fldSimple');fld.set(qn('w:instr'),'PAGE');run._r.addnext(fld)
