@@ -5,6 +5,8 @@ are terminal records; this entry never launches a fourth formal training.
 """
 from __future__ import annotations
 import fcntl
+import ctypes
+import errno
 import json
 import os
 import select
@@ -23,7 +25,15 @@ def main():
                          wait_mechanism='Linux pidfd process-exit event'))
     try:
         try:
-            descriptor=os.pidfd_open(launcher['pid'])
+            if hasattr(os,'pidfd_open'):
+                descriptor=os.pidfd_open(launcher['pid'])
+            else:
+                libc=ctypes.CDLL(None,use_errno=True)
+                descriptor=libc.pidfd_open(int(launcher['pid']),0)
+                if descriptor<0:
+                    error=ctypes.get_errno()
+                    if error==errno.ESRCH:raise ProcessLookupError(error,'Process already exited')
+                    raise OSError(error,os.strerror(error))
             select.select([descriptor],[],[]);os.close(descriptor)
         except ProcessLookupError:pass
         pipeline=json.loads((RUN/'pipeline.json').read_text())
