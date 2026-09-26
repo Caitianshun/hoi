@@ -148,7 +148,7 @@ def feedback():
     # This bundle is a local review artifact, not an upload/publication.
     selected=[]
     for name in ['PROTOCOL.md','REPRODUCE.md','NEXT_DECISION.md','MISSING_ASSETS.md','HOS_ASSETS.md','HANDOFF.md','report_content.json',
-                 'LITERATURE_PROTOCOL_AUDIT.md','ERROR_ATTRIBUTION.md','existing_error_budget.csv',
+                 'LITERATURE_PROTOCOL_AUDIT.md','ERROR_ATTRIBUTION.md','BEHAVE_NUMERICAL_REVIEW.md','BEHAVE_VISUAL_REVIEW.md','existing_error_budget.csv',
                  'existing_error_summary.json','input_fit_existing.csv','costs.json','model_index.json','asset_sources.json','split_manifest.json']:
         p=RUN/name
         if p.exists():selected.append(p)
