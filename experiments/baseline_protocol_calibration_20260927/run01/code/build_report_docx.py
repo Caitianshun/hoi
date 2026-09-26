@@ -483,76 +483,39 @@ class Report:
         self.p('本轮数值源  existing_error_summary.json  evaluation/comparison/summary.json  evaluation/hos_comparison/summary.json  对应 metrics_per_frame.csv 和 input_fit.csv  protocol/gpu_cost_ledger.json  costs.json。正式方法适配入口为 code/adapter_4dgs.py 与 code/train_official.py，完整旧 S1 恢复入口为 code/render_full_s1.py。','Caption')
 
 
-def make_feedback(run,docx,figure_dir):
-    """Package review-scale evidence only; never raw inputs, weights or checkpoints."""
-    paths=[]
-    for rel in ['PROTOCOL.md','NEXT_DECISION.md','MISSING_ASSETS.md','LITERATURE_PROTOCOL_AUDIT.md','REPRODUCE.md','costs.json',
-                'report_content.json','existing_error_budget.csv','existing_error_summary.json','input_fit_existing.csv',
-                'protocol/literature_sources.json','protocol/behave_finals.json','protocol/hos_finals.json',
-                'protocol/launcher.json','protocol/training_frozen.json','protocol/hos_asset_sources.json',
-                'protocol/hos_split_manifest.json','protocol/hos_checkpoint_identity.json',
-                'protocol/behave_dev1_assets.json','protocol/behave_dev2_assets.json',
-                'protocol/behave_dev1_native_render_check.json','protocol/behave_dev2_native_render_check.json',
-                'code/experiment_config.json','evaluation/comparison/summary.json','evaluation/comparison/metrics_per_frame.csv',
-                'evaluation/comparison/input_fit.csv','evaluation/comparison/paired_differences.csv',
-                'evaluation/hos_comparison/summary.json','evaluation/hos_comparison/metrics_per_frame.csv','evaluation/hos_comparison/input_fit.csv',
-                'output/report_build_audit.json']:
-        p=run/rel
-        if p.is_file():paths.append(p)
-    for name in ['behave_dev1_formal','behave_dev2_formal','hos_backpack_formal']:
-        paths.extend(run/'runs'/name/file for file in ['run.json','effective_config.json','projection_check.json','upstream_adaptation.json'] if (run/'runs'/name/file).is_file())
-    for rel in ['inputs/behave_dev1/shared_init.json','inputs/behave_dev2/shared_init.json','inputs/hos_backpack/sampling_and_support.json',
-                'inputs/hos_backpack/initialization.json','inputs/behave_dev1/manifest.json','inputs/behave_dev2/manifest.json',
-                'inputs/hos_backpack/manifest.json','inputs/hos_backpack/evaluation_manifest.json',
-                'inputs/behave_dev1/evaluation_manifest.json','inputs/behave_dev2/evaluation_manifest.json']:
-        p=run/rel
-        if p.is_file():paths.append(p)
-    paths.extend(sorted(figure_dir.glob('*.png')));paths.append(docx)
-    # Precomputed overview sheets include every fixed input-view preview and all
-    # paired E, while excluding unbounded raw-render/model payloads.
-    manifest=read(run/'evaluation/comparison/figure_manifest.json')
-    paths.extend(asset(r['sheet']) for r in manifest['contact_sheets'])
-    # Raw ledger holds many samples. Compact rows preserve measured cost and origin.
-    ledger=read(run/'protocol/gpu_cost_ledger.json')
-    compact=[{k:v for k,v in row.items() if k not in ['sampled_process_memory','command']} for row in ledger]
-    archive=run/'output/baseline_calibration_feedback.zip'
-    with zipfile.ZipFile(archive,'w',zipfile.ZIP_DEFLATED) as z:
-        for p in sorted(set(paths)):
-            assert p.suffix.lower() not in ['.pt','.pth','.ckpt','.npz','.mp4','.ply']
-            z.write(p,p.relative_to(run))
-        z.writestr('protocol/gpu_cost_ledger_compact.json',json.dumps(compact,ensure_ascii=False,indent=2)+'\n')
-        z.writestr('FEEDBACK_README.txt','先阅读 output/V3_baseline_calibration.docx。表格保留实际聚合方式。包内清单中的绝对路径仅为原始来源身份，原始数据和权重未打包；报告图像已内嵌，output/report_figures另供查看。\n')
-    return archive
-
-
 def main(args):
     run=args.run.resolve();content=read(args.content or run/'report_content.json');costpath=args.costs or run/'costs.json';costs=read(costpath)
     for key in ['summary_paragraphs','behave_interpretation','hos_interpretation','next_decision','limitations']:
         assert content.get(key) and isinstance(content[key],list),f'Missing root-authored {key}'
     B=read(run/'evaluation/comparison/summary.json');H=read(run/'evaluation/hos_comparison/summary.json');A=read(run/'existing_error_summary.json')
-    assert B['status']=='completed' and H['status']=='completed'
-    assert B['metric_rows']==90 and H['figure_count']==16
     fmanifest=read(run/'evaluation/comparison/figure_manifest.json');figures=fmanifest['figures']
-    assert sum(r['group']=='camera1_E' for r in figures)==9
+    coverage=validate_coverage(run,B,H,fmanifest)
     r=Report(run,content,costs)
     r.summary(B,A);r.protocol();r.old_errors(A);r.main_regions(B);r.fit_and_pairs(B);r.behave_figures(figures);r.fit_figures(figures);r.hos_results(H);r.hos_figures(H);r.costs_page();r.decision_and_sources()
+    expected_e={(dev,fid) for dev,ids in coverage['behave_E_ids'].items() for fid in ids}
+    for mode in ['behave_full','behave_crop']:
+        included=[(x['dev'],x['frame_id']) for x in r.image_sources if x['mode']==mode and x['group']=='camera1_E']
+        assert len(included)==9 and set(included)==expected_e,'DOCX must embed all nine E full images and fixed crops'
+    included_hos=[x['frame_id'] for x in r.image_sources if x['mode']=='hos_full']
+    assert len(included_hos)==16 and set(included_hos)==set(coverage['hos_test_ids']),'DOCX must embed all sixteen HOS test images'
     output=args.output or run/'output/V3_baseline_calibration.docx';output.parent.mkdir(parents=True,exist_ok=True);r.doc.save(output)
     with zipfile.ZipFile(output) as z:
         media=[name for name in z.namelist() if name.startswith('word/media/')]
         rels=z.read('word/_rels/document.xml.rels').decode()
         assert 'TargetMode="External"' not in rels,'Report images must be embedded, no external image dependency'
     audit=dict(status='authored_awaiting_render_and_visual_QA',created_utc=datetime.now(timezone.utc).isoformat(),docx=ident(output),
-        planned_pages=14,sections=r.section_pages,embedded_media_count=len(media),image_sources=r.image_sources,
+        planned_pages=14,sections=r.section_pages,embedded_media_count=len(media),image_sources=r.image_sources,figure_coverage=coverage,
         sources=[ident(p) for p in [args.content or run/'report_content.json',costpath,run/'existing_error_summary.json',
-            run/'evaluation/comparison/summary.json',run/'evaluation/comparison/figure_manifest.json',run/'evaluation/hos_comparison/summary.json']],
+            run/'evaluation/comparison/summary.json',run/'evaluation/comparison/figure_manifest.json',run/'evaluation/hos_comparison/summary.json',
+            run/'evaluation/comparison/metrics_per_frame.csv',run/'evaluation/comparison/input_fit.csv',
+            run/'evaluation/hos_comparison/metrics_per_frame.csv',run/'evaluation/hos_comparison/input_fit.csv',Path(__file__)]],
         behavior='Saved metrics and precomputed comparison figures only; no model runs, metric recomputation, new GT decoding or optimization',
         formal_nominal_steps=51000,formal_optimizer_updates=50997,
         skill_mark_executed_by='caller exactly once before first build',visual_QA_executed=False)
     (run/'output/report_build_audit.json').write_text(json.dumps(audit,ensure_ascii=False,indent=2)+'\n')
-    if args.feedback_zip:audit['feedback_zip']=ident(make_feedback(run,output,r.figure_dir))
     print(json.dumps({k:v for k,v in audit.items() if k not in ['image_sources','sources','sections']},ensure_ascii=False,indent=2))
 
 
 if __name__=='__main__':
-    p=argparse.ArgumentParser(description=__doc__);p.add_argument('--run',type=Path,default=RUN);p.add_argument('--content',type=Path);p.add_argument('--costs',type=Path);p.add_argument('--output',type=Path);p.add_argument('--feedback-zip',action='store_true')
+    p=argparse.ArgumentParser(description=__doc__,epilog='After DOCX render and visual QA, use code/package_results.py for the feedback archive.');p.add_argument('--run',type=Path,default=RUN);p.add_argument('--content',type=Path);p.add_argument('--costs',type=Path);p.add_argument('--output',type=Path)
     main(p.parse_args())
