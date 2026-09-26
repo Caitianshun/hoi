@@ -274,6 +274,13 @@ def checks():
     rgb_ref = np.array([(colors[ids]*w[:, None]).sum(0)+1-w.sum() for ids, w in legacy])
     aerr, rerr = float(np.max(abs(alpha-alpha_ref))), float(np.max(abs(rgb-rgb_ref)))
     assert max(aerr, rerr) < 1e-12, (aerr, rerr)
+    # Real banks use float32 scales; legacy squares them before promotion.
+    f32 = [a.astype(np.float32) for a in (xyz, frame, scale, opacity)]
+    p32 = project_hs(*f32, K, C, H, W)
+    legacy32 = sparse(*f32, K, C, uv, W=W, H=H)
+    _, alpha32, _ = render_pixels(uv, *[p32[k] for k in ('mu', 'z', 'conic', 'opacity', 'ptr', 'ids', 'gx')], colors)
+    aerr32 = float(np.max(abs(alpha32-np.array([w.sum() for _, w in legacy32]))))
+    assert aerr32 < 1e-12
     # Analytic ray: a=.5 at z1, a=.8 at z3; surface z2 must exclude z3.
     args = dict(mu=np.zeros((2, 2)), z=np.array([1., 3.]), conic=np.tile([1., 0, 1.], (2, 1)), opacity=np.array([.5, .8]), ptr=np.array([0, 2]), ids=np.array([0, 1]), gx=1)
     q = np.zeros((1, 2))
@@ -295,7 +302,8 @@ def checks():
     empty = prefix(args, np.zeros((0, 2)), np.zeros(0))
     assert not len(empty[0]) and not len(fixed_pixels(np.zeros((7, 7), bool)))
     return dict(status='passed', device='CPU only', synthetic_seed=619, legacy_alpha_max_abs_error=aerr,
-                legacy_rgb_max_abs_error=rerr, sparse_helper=identity(SPARSE_SOURCE),
+                legacy_rgb_max_abs_error=rerr, legacy_float32_bank_alpha_max_abs_error=aerr32,
+                sparse_helper=identity(SPARSE_SOURCE),
                 behind_surface_excluded=True, native_early_stop_distinguished=True,
                 dummy_color_weight_finite_difference_error=abs(analytic-numerical),
                 mesh_perspective_depth=True, empty_O_supported=True, GPU_numerical_validation_performed=False)
@@ -387,7 +395,7 @@ def run(dev, output, maximum=512, hs_images=False, frame_indices=None):
     assert scene.assert_frozen()
     sources = [Path(__file__), E/'code/aux_scene.py', SPARSE_SOURCE, MESH_SOURCE, NATIVE_SOURCE]
     if FORWARD_SOURCE.exists():
-        sources.append(FORWARD_SOURCE)
+        sources.extend([FORWARD_SOURCE, FORWARD_SOURCE.parent/'auxiliary.h'])
     report = dict(protocol_id='AUX_REF_OBJECT', role='diagnostic_native_S_camera0_only', dev=dev, device='CPU',
                   definition=DEFINITION, input_manifest=identity(manifest_path), scene_sources=scene.source_identity,
                   template=identity(scene.initialization['object_init']), source_code=[identity(p) for p in sources],
