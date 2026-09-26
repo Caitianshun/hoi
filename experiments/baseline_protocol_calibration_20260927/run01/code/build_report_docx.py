@@ -255,9 +255,15 @@ class Report:
             ref=record['crop'] if mode=='behave_crop' else record.get('full',record)
             path=asset(ref)
             with Image.open(path) as im:im=im.convert('RGB')
-            if mode=='behave_full':content=im.crop((0,36,im.width,im.height-44))
-            elif mode=='behave_crop':content=im.crop((0,36,im.width,im.height))
-            elif mode=='hos_full':content=im.crop((0,66,im.width,im.height))
+            if mode=='behave_full':
+                assert im.size==(1920,560),f'Unexpected BEHAVE figure geometry: {path}'
+                content=im.crop((0,36,im.width,im.height-44))
+            elif mode=='behave_crop':
+                assert im.size==(960,300),f'Unexpected BEHAVE crop geometry: {path}'
+                content=im.crop((0,36,im.width,im.height))
+            elif mode=='hos_full':
+                assert im.size==(1920,round(718*640/1277)+66),f'Unexpected HOS figure geometry: {path}'
+                content=im.crop((0,66,im.width,im.height))
             else:raise ValueError(mode)
             label=record.get('report_label',record.get('frame_id',path.stem))
             target_width=1920 if mode!='behave_crop' else 960
@@ -268,7 +274,8 @@ class Report:
             usefont=font if mode!='behave_crop' else ImageFont.truetype(DEJAVU,38)
             draw.text((16,6),label,font=usefont,fill='black')
             cards.append(card)
-            self.image_sources.append(dict(report_contact=name,source_figure=ident(path),mode=mode,frame_id=record.get('frame_id',path.stem)))
+            self.image_sources.append(dict(report_contact=name,source_figure=ident(path),mode=mode,
+                dev=record.get('dev'),group=record.get('group'),frame_id=record.get('frame_id',path.stem)))
         assert cards
         cellw=max(c.width for c in cards);cellh=max(c.height for c in cards)
         padding=24;rows=math.ceil(len(cards)/columns)
@@ -338,6 +345,8 @@ class Report:
                     rows.append([DEV_NAMES[dev],METHOD_NAMES[method],REGION_NAMES[region],numeric(d['psnr_db']['mean']),numeric(d['pooled_psnr_db']),numeric(d['ssim']['mean'],4),numeric(d['lpips_spatial_mean']['mean'],4)])
         self.table(rows,[.55,1.08,.95,1.15,1.25,1.0,1.01],8.2)
         self.p('每帧先算 PSNR 再等权平均，区别于先累加区域误差和像素再得到 pooled PSNR；两者同时给出。SSIM 为整图 7×7 映射在固定区域内的均值；LPIPS 为本地 AlexNet v0.1 空间映射区域均值，其感受野可跨区域边界。空区域记 NA。浮点预测原样保存，统一指标和展示均裁到 0 至 1。','Caption')
+        if not B['lpips']['available']:
+            self.p('本次统一 LPIPS 未取得有效值，表中记 NA，不解释为零误差。评价程序记录的原因为 '+B['lpips'].get('reason','未提供具体原因')+'。','Caption')
         self.p('camera1 仍使用历史发布拟合派生 H O S 区域；它不是独立人工 RGB 轮廓或真实可见性标注。箱体 t26 的 200 像素 O、困难帧及全部失败均保留。前景指 H 与 O 并集，不要求没有实体 bank 的 4DGS 产生虚构的实例贡献率。')
 
     def fit_and_pairs(self,B):
@@ -393,12 +402,14 @@ class Report:
         self.paras('hos_interpretation',True)
         for key,title in [('H0_test','H0 官方检查点原生条件'),('H1_test','H1 训练帧初始化的适配 4DGS'),('H1_input_fit','H1 原训练全集拟合')]:
             self.doc.add_heading(title,2)
-            rows=[['区域','帧数','均值 PSNR','pooled PSNR','SSIM','LPIPS']]
+            rows=[['区域','有效／总帧','均值 PSNR','pooled PSNR','SSIM','LPIPS']]
             for region in ['full','foreground','background']:
                 d=H['results'][key][region]
-                rows.append([REGION_NAMES[region] if region!='foreground' else '合并前景',d['frames'],numeric(d['psnr_db']),numeric(d['pooled_psnr_db']),numeric(d['ssim'],4),numeric(d['lpips_spatial_mean'],4)])
-            self.table(rows,[1.2,.65,1.3,1.4,1.2,1.24],8.4)
-        self.p('三张表分开呈现，不计算 H1 减 H0 的公平增益。前景仅为发布 soft mask 以 128 为阈值的合并区域，没有独立的人 物分区。统一指标采用 AlexNet 空间 LPIPS；H0 原生程序的 VGG 标量 LPIPS 与这里不能混写。','Caption')
+                rows.append([REGION_NAMES[region] if region!='foreground' else '合并前景',f"{d['valid_frames']}/{d['frames']}",numeric(d['psnr_db']),numeric(d['pooled_psnr_db']),numeric(d['ssim'],4),numeric(d['lpips_spatial_mean'],4)])
+            self.table(rows,[1.1,.85,1.25,1.35,1.2,1.24],8.4)
+        self.p('三张表分开呈现，不计算 H1 减 H0 的公平增益。有效帧指该区域非空且有误差记录的帧，空区域不参与均值或 pooled 统计；NA 表示不可用，不是零误差。前景仅为发布 soft mask 以 128 为阈值的合并区域，没有独立的人 物分区。统一指标采用 AlexNet 空间 LPIPS；H0 原生程序的 VGG 标量 LPIPS 与这里不能混写。','Caption')
+        if not H['lpips']['available']:
+            self.p('统一 LPIPS 本次全部记 NA，原因由评价程序记录为 '+H['lpips'].get('reason','未提供具体原因')+'；这不影响已有 PSNR 与 SSIM 的有效帧。','Caption')
         native=H['native_H0_metrics']
         self.p(f"H0 原生 16 帧复核另得 PSNR {numeric(native['PSNR_frame_mean'])}、常规二维 SSIM {numeric(native['SSIM_conventional_2D_frame_mean'],4)}、VGG LPIPS {numeric(native['LPIPS_VGG_scalar_frame_mean'],4)}。它们仅标为本机原生检查点渲染指标；历史训练划分身份未完全核实，不宣称精确复现论文数值。")
         edge=H['time_boundary_diagnostic']
@@ -418,7 +429,7 @@ class Report:
             rows=[['帧 ID','H0 PSNR','H1 PSNR','H0 SSIM','H1 SSIM','H0 LPIPS','H1 LPIPS']]
             for f in rec:
                 fid=f['frame_id'];a=lookup[fid,'H0','full'];b=lookup[fid,'H1','full']
-                rows.append([fid,string_num(a['psnr_db']),string_num(b['psnr_db']),numeric(float(a['ssim']),4),numeric(float(b['ssim']),4),numeric(float(a['lpips_spatial_mean']),4),numeric(float(b['lpips_spatial_mean']),4)])
+                rows.append([fid,numeric(a['psnr_db']),numeric(b['psnr_db']),numeric(a['ssim'],4),numeric(b['ssim'],4),numeric(a['lpips_spatial_mean'],4),numeric(b['lpips_spatial_mean'],4)])
             self.table(rows,[.7,1.05,1.05,1.05,1.05,1.045,1.045],8.2)
             self.p('表为统一评价尺寸上的完整图逐帧指标，独立保存每个系统结果。这里没有按结果挑终态、调整门槛、换初始化或删除困难帧。','Caption')
 
