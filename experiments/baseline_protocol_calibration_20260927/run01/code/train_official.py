@@ -161,7 +161,7 @@ def run(a):
         requested = (a.coarse_steps or 0) + (a.fine_steps or 0)
         if a.resume:
             prev = torch.load(a.resume, map_location='cpu', weights_only=False)
-            requested -= prev['iteration']
+            requested -= prev['iteration'] + (a.coarse_steps if prev['stage']=='fine' else 0)
         assert used + requested <= limit, (a.dataset, used, requested, limit)
         assert len(rows) + requested <= 200
     runtime = Runtime(output, a.check, a.resume)
@@ -172,6 +172,8 @@ def run(a):
         cfg = dict(model=vars(dataset), hidden=vars(hidden), optimization=vars(opt), pipeline=vars(pipe),
                    seed=12345, official_commit=OFFICIAL_COMMIT, manifest_sha256=sha(a.manifest),
                    GPU='physical1 RTX3090', check=a.check,
+                   adapter_sha256=sha(Path(__file__).with_name('adapter_4dgs.py')),
+                   training_wrapper_sha256=sha(__file__),
                    official_default_sha256=sha(UPSTREAM/'arguments/hypernerf/default.py'))
         if a.resume:
             assert json.loads((output/'effective_config.json').read_text()) == cfg

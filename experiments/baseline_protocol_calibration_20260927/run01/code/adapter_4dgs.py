@@ -99,6 +99,8 @@ def load_manifest(path):
     assert all(0 <= f['time'] <= 1 for f in m['frames'])
     times = [f['time_seconds'] for f in m['frames']]
     assert times == sorted(times) and len(times) == len(set(times))
+    pc = m['point_cloud']
+    assert sha(pc['npz_path']) == pc['npz_sha256'], 'Initialization identity changed'
     for f in m['frames']:
         if f.get('image_sha256'):
             assert sha(f['image_path']) == f['image_sha256']

@@ -7,6 +7,7 @@ intermediate timestamps use the previously established prediction interpolation.
 from pathlib import Path
 import argparse,hashlib,json,sys,time
 import numpy as np
+import cv2
 import torch
 from scipy.spatial.transform import Rotation,Slerp
 from export_protocol import ROOT,RUN,OLD,identity,sha,save
@@ -150,8 +151,10 @@ def export_render(dev,freeze):
             rgb=ret['rgb'].permute(1,2,0).cpu().numpy();alpha=ret['alpha'].squeeze().cpu().numpy()
             dest=out/label/f'{frame["frame_id"]}.npz';dest.parent.mkdir(exist_ok=True)
             np.savez_compressed(dest,rgb=rgb,alpha=alpha)
+            png=dest.with_suffix('.png')
+            assert cv2.imwrite(str(png),np.rint(np.clip(rgb,0,1)*255).astype(np.uint8)[...,::-1])
             records.append(dict(group=label,frame_id=frame['frame_id'],time_seconds=frame['time_seconds'],render=identity(dest),
-                                source_frame=frame,visualization_selected=(label!='camera0_full_training_fit' or i in selected)))
+                                png=identity(png),source_frame=frame,visualization_selected=(label!='camera0_full_training_fit' or i in selected)))
         del scene
         torch.cuda.empty_cache()
     report=dict(status='completed',dev=dev,source_checkpoint=identity(OLD/f'{dev}_S1_v1/checkpoint_008000.pt'),
