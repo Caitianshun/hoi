@@ -104,7 +104,11 @@ def make_tile_index(rectmin, rectmax, depth_order, gx, gy):
 
 def project_hs(xyz, frame, scale, opacity, K, C, H, W):
     """Same float64 projection/footprints as frozen sparse_raster_exact.py."""
-    xyz, frame, scale = [np.asarray(x, np.float64) for x in (xyz, frame, scale)]
+    # Preserve scale's input precision for scale**2, as the legacy helper does;
+    # world/camera products are float64. Promoting scale before squaring changes
+    # real float32-bank footprints by small, avoidable amounts.
+    xyz = np.asarray(xyz, np.float64)
+    frame, scale = np.asarray(frame), np.asarray(scale)
     camera = (xyz-C[:3, 3]) @ C[:3, :3]
     z = camera[:, 2]
     fx, fy, cx, cy = K[0, 0], K[1, 1], K[0, 2], K[1, 2]
@@ -363,7 +367,7 @@ def run(dev, output, maximum=512, hs_images=False, frame_indices=None):
         _, own_alpha, _ = render_pixels(check_uv, *[projected[k] for k in ('mu', 'z', 'conic', 'opacity', 'ptr', 'ids', 'gx')], colors)
         old_alpha = np.array([weight.sum() for _, weight in legacy])
         parity = float(np.max(abs(own_alpha-old_alpha))) if len(uv) else None
-        assert parity is None or parity < 1e-11
+        assert parity is None or parity < 1e-11, ('Legacy sparse alpha mismatch', index, parity)
         row['legacy_sparse_alpha_parity'] = dict(sample_count=len(check_uv), max_abs_error=parity)
         np.savez_compressed(folder/'prefix_samples.npz', **raw)
         row['sample_arrays'] = identity(folder/'prefix_samples.npz')
