@@ -1,0 +1,12 @@
+{
+  "seed": 12345,
+  "batch_size": 2,
+  "coarse_iterations": 3000,
+  "fine_iterations": 14000,
+  "nominal_steps_per_run": 17000,
+  "optimizer_steps_per_run": 16999,
+  "max_formal_runs": 3,
+  "max_gpu_seconds": 43200,
+  "max_temporary_steps": 200,
+  "official_commit": "843d5ac636c37e4b611242287754f3d4ed150144"
+}

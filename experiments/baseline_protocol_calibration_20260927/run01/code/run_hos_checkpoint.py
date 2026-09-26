@@ -27,7 +27,7 @@ def sha(p):
 
 
 def main():
-    p=argparse.ArgumentParser();p.add_argument('--official',type=Path,required=True);p.add_argument('--data',type=Path,required=True);p.add_argument('--checkpoint',type=Path,required=True);p.add_argument('--output',type=Path,required=True);p.add_argument('--check-only',action='store_true');p.add_argument('--limit',type=int,default=0);p.add_argument('--chunk',type=int,default=2048)
+    p=argparse.ArgumentParser();p.add_argument('--official',type=Path,required=True);p.add_argument('--data',type=Path,required=True);p.add_argument('--checkpoint',type=Path,required=True);p.add_argument('--output',type=Path,required=True);p.add_argument('--check-only',action='store_true');p.add_argument('--limit',type=int,default=0);p.add_argument('--skip',type=int,default=0);p.add_argument('--chunk',type=int,default=2048)
     a=p.parse_args(); a.official=a.official.resolve();a.data=a.data.resolve();a.checkpoint=a.checkpoint.resolve();a.output=a.output.resolve();a.output.mkdir(parents=True,exist_ok=True)
     torch.set_num_threads(4);torch.manual_seed(12345);np.random.seed(12345)
     source=a.official/'3rd_Complete_HOSNeRF';os.chdir(source);sys.path.insert(0,str(source))
@@ -54,9 +54,11 @@ def main():
     m.logdir=str(a.output);m.near_bkg=.1;m.far_bkg=1e6;m._trainer=SimpleNamespace(global_step=int(ckpt['global_step']))
     ids=list(m.test_dataloader.dataset.framelist)
     full_ids=list(ids)
-    if a.limit:
-        m.test_dataloader=torch.utils.data.DataLoader(torch.utils.data.Subset(m.test_dataloader.dataset,range(min(a.limit,len(ids)))),batch_size=1,shuffle=False,num_workers=0)
-        ids=ids[:a.limit]
+    assert 0 <= a.skip < len(ids)
+    if a.limit or a.skip:
+        stop=min(a.skip+a.limit,len(ids)) if a.limit else len(ids)
+        m.test_dataloader=torch.utils.data.DataLoader(torch.utils.data.Subset(m.test_dataloader.dataset,range(a.skip,stop)),batch_size=1,shuffle=False,num_workers=0)
+        ids=ids[a.skip:stop]
     identity=dict(checkpoint=str(a.checkpoint),checkpoint_sha256=sha(a.checkpoint),step=ckpt['global_step'],strict_load=True,
         missing_keys=result.missing_keys,unexpected_keys=result.unexpected_keys,test_ids=full_ids,render_ids=ids,
         resolution=[1277,718],chunk_bkg=a.chunk,resize_scale=cfg.resize_img_scale,
