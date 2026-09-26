@@ -5,15 +5,15 @@ import numpy as np,torch
 from torch import nn
 E=Path(__file__).resolve().parents[1]
 QD=68;KD=58;D=32
-F2_PARAMS=(QD+1)*D+(KD+1)*D
-WIDTH=min(range(8,129),key=lambda w:abs((QD+KD+2)*w+1-F2_PARAMS))
+F2_PARAMS=(QD+1)*D+KD*D
+WIDTH=min(range(8,129),key=lambda w:abs((QD+KD+2)*w-F2_PARAMS))
 class Scorer(nn.Module):
  def __init__(self,variant):
   super().__init__();self.variant=variant
   if variant=='F1':
-   self.mlp=nn.Sequential(nn.Linear(QD+KD,WIDTH),nn.ReLU(),nn.Linear(WIDTH,1));nn.init.zeros_(self.mlp[-1].weight);nn.init.zeros_(self.mlp[-1].bias)
+   self.mlp=nn.Sequential(nn.Linear(QD+KD,WIDTH),nn.ReLU(),nn.Linear(WIDTH,1,bias=False));nn.init.zeros_(self.mlp[-1].weight)
   if variant=='F2':
-   self.q=nn.Linear(QD,D);self.k=nn.Linear(KD,D);nn.init.zeros_(self.q.weight);nn.init.zeros_(self.q.bias)
+   self.q=nn.Linear(QD,D);self.k=nn.Linear(KD,D,bias=False);nn.init.zeros_(self.q.weight);nn.init.zeros_(self.q.bias)
  def forward(self,features,return_weights=False):
   q,k,values,valid,r,old=features;score=r.clamp_min(1e-8).log()
   if self.variant=='F1':score=score+self.mlp(torch.cat((q[:,None,:].expand(-1,8,-1),k),-1)).squeeze(-1)
