@@ -37,6 +37,8 @@ class Runtime:
         self.output = Path(output); self.check = check
         self.started = time.monotonic(); self.previous_seconds = 0.
         self.resume = torch.load(resume, map_location='cpu', weights_only=False) if resume else None
+        self.last_checkpoint = Path(resume) if resume else None
+        self.allowed_seconds = float(os.environ.get('V3_REMAINING_GPU_SECONDS', 12 * 3600))
         self.stage = None; self.step = 0; self.attempted = 0
         self.peak_points = 0; self.gradient_checks = {}; self.loss_rows = []
         self.prior_steps = self.resume.get('total_nominal_steps', 0) if self.resume else 0
@@ -53,7 +55,7 @@ class Runtime:
             with ledger.open('a') as f:
                 f.write(json.dumps(dict(run=self.output.name, stage=stage,
                                        iteration=iteration, time=time.time())) + '\n')
-        if self.previous_seconds + time.monotonic() - self.started > 12 * 3600:
+        if time.monotonic() - self.started > self.allowed_seconds:
             raise TimeoutError('12 GPU-hour ceiling reached; retain incomplete status')
 
     def gradient_check(self, stage, iteration, model, loss):
@@ -149,8 +151,8 @@ def run(a):
     dataset.source_path = str(Path(a.manifest).absolute()); dataset.model_path = str(Path(a.output).absolute())
     dataset.render_process = False
     output = Path(dataset.model_path); output.mkdir(parents=True, exist_ok=True)
-    if (output / 'run.json').exists() and not a.resume:
-        raise FileExistsError('Run already has terminal status; do not restart')
+    if any((output / n).exists() for n in ['run.json','failure.json','effective_config.json']) and not a.resume:
+        raise FileExistsError('Existing attempt cannot restart from zero; exact-state resume required')
     if a.check:
         ledger = RUN / 'protocol/temporary_steps.jsonl'
         rows = [json.loads(x) for x in ledger.read_text().splitlines()] if ledger.exists() else []
