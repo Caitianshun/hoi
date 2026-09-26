@@ -34,7 +34,7 @@ def main():
  center=np.median(xyz,axis=0);extent=float(1.1*np.percentile(np.linalg.norm(xyz-center,axis=1),95))
  # AABB shape matches project adapter {min,max}, no coordinate scaling.
  manifest['scene_center']=center.tolist();manifest['scene_extent']=extent;manifest['aabb']={'min':xyz.min(0).tolist(),'max':xyz.max(0).tolist()}
- manifest['point_cloud']=dict(npz_path=str(output),path=str(output),sha256=sha(output),points=len(xyz),source='frozen train-only RGB/mask two-view triangulation; stratified fixed random cap',raw_path=str(raw),raw_sha256=sha(raw),selected_indices=str(base/'selected_raw_indices.npy'))
+ manifest['point_cloud']=dict(npz_path=str(output),path=str(output),sha256=sha(output),npz_sha256=sha(output),points=len(xyz),source='frozen train-only RGB/mask two-view triangulation; stratified fixed random cap',raw_path=str(raw),raw_sha256=sha(raw),selected_indices=str(base/'selected_raw_indices.npy'))
  manifest['initialization']=manifest['point_cloud']
  (base/'manifest.json').write_text(json.dumps(manifest,indent=2)+'\n')
  stats=dict(seed=12345,raw_points=len(data['xyz']),selected_points=len(xyz),raw_background=int((data['label']==0).sum()),raw_foreground=int((data['label']==1).sum()),selected_background=int((data['label'][selected]==0).sum()),selected_foreground=int((data['label'][selected]==1).sum()),quota={'background':90000,'foreground':10000},raw_sha256=sha(raw),sampled_sha256=sha(output),source_support=support,
