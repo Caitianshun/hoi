@@ -13,7 +13,7 @@ S=read(E/'evaluation/summary.json');rows=read(E/'evaluation/per_frame.json');I=r
 D=Document();sec=D.sections[0];sec.page_width=Inches(8.5);sec.page_height=Inches(11);sec.top_margin=sec.bottom_margin=Inches(.6);sec.left_margin=sec.right_margin=Inches(.7)
 for n in ['Normal','Title','Subtitle','Heading 1','Heading 2','Caption']:
  st=D.styles[n];st.font.name='Calibri';st.font.color.rgb=RGBColor(0,0,0);st.element.get_or_add_rPr().rFonts.set(qn('w:eastAsia'),'Noto Sans CJK SC');st.paragraph_format.space_after=Pt(6)
-D.styles['Normal'].font.size=Pt(10.5);D.styles['Normal'].paragraph_format.line_spacing=1.1;D.styles['Title'].font.size=Pt(19);D.styles['Heading 1'].font.size=Pt(15);D.styles['Heading 2'].font.size=Pt(12);D.styles['Caption'].font.size=Pt(9);D.styles['Caption'].font.italic=False
+D.styles['Normal'].font.size=Pt(10.5);D.styles['Normal'].paragraph_format.line_spacing=1.1;D.styles['Title'].font.size=Pt(19);D.styles['Heading 1'].font.size=Pt(15);D.styles['Heading 2'].font.size=Pt(12);D.styles['Caption'].font.size=Pt(9);D.styles['Caption'].font.italic=False;D.styles['Caption'].font.bold=False;D.styles['Subtitle'].font.italic=False
 for st in D.styles:
  for el in list(st.element.iter(qn('w:pBdr'))):el.getparent().remove(el)
 def p(t,style=None):return D.add_paragraph(t,style)
@@ -59,7 +59,7 @@ table(t,[1.2,2.9,2.9])
 p('B1 的均值增益未达 +0.5 dB；其余 SSIM、完整图、贡献比例、支持区域及边界护栏通过。F2−F1 未达 +0.2 dB；木椅逐帧差中位数还为负。F2 相对 F0/B0 均值未下降，其他数值护栏通过，但不足以保留本次注意力作为有效增量。这些是资源分配工程标准，不是统计显著性或论文创新标准。')
 for d,n in [('dev1','箱体'),('dev2','木椅')]:
  page(n+'全部评价帧')
- image(E/f'output/figures/{d}_crop.png',6.8)
+ image(E/f'output/figures/{d}_crop.png',6.35 if d=='dev1' else 6.8)
  p('每行依次为 GT、B0、B1、F0、F1、F2、仅 H/S。青线为同一固定 O；裁剪由参考 O 框加 60 像素决定。全部帧都展示，不按收益挑选。','Caption')
  rr=sorted([r for r in rows if r['dev']==d and r['variant']=='B0'],key=lambda r:r['time']);lookup={(r['time'],r['variant']):r for r in rows if r['dev']==d};t=[['时刻','B0','B1','F0','F1','F2']]
  for r in rr:
@@ -77,13 +77,13 @@ for d,n in [('dev1','箱'),('dev2','椅')]:
   j=read(x);c=j['counts'];den=j['O_pixels'];t.append([n+f" t{j['time']:g}",den]+[f"{c[k]}\n{100*c[k]/den:.1f}%" for k in ['supported','single_view','no_positive_evidence','unmapped','source_ge3']])
 table(t,[1,.65,1.05,1.05,1.05,1.05,1.15],8.5)
 p('全部 9 帧固定 O 均有模板深度；这不等于模板或拟合正确。未映射比例单列，不排除出主指标。各帧 supported 均不少于 100 像素，因此 B1 支持区域护栏在两事件都启用。箱体/木椅 supported PSNR 配对均值为 +0.435/−0.005 dB，均过 −0.2 dB 护栏。','Caption')
-p('B0 的实际高斯中，箱体 2782/6000、木椅 1396/6000 个具有至少两源；至少三源为 1564/6000、470/6000。更严格的继承面唯一关联使 1011/1628 个高斯不能可靠映射。表面有正观测却在同面 5 mm 内没有初始 anchor 的评价像素也已保存，不能归为未观测。这是容量或采样的后续线索，不是已证实的主要原因；当前高斯核仍可能覆盖邻近像素。')
+p('B0 的实际高斯中，箱体 2782/6000、木椅 1396/6000 个具有至少两源；至少三源为 1564/6000、470/6000。按严格面关联与局部采样规则，1011/1628 个高斯记为未映射。表面有正观测却在同面 5 mm 内没有初始 anchor 的评价像素也已保存，不能归为未观测。这是容量或采样的后续线索，不是已证实的主要原因；当前高斯核仍可能覆盖邻近像素。')
 p('箱体 F2 相对 F0 的 supported PSNR 提高约 0.208 dB，而木椅约 0.024 dB。收益并未统一转化为完整 O 的明显改进。固定几何、opacity 与 H/S 的误差不会由颜色选择修复；只靠本轮结果不能区分对应误差、采样限制和表示上限的相对贡献。')
 page('来源审计与回退记录')
 p('每事件按实际高斯局部 ID 等间距取八个样本，含无来源和单来源回退。图中为源像素周围上下文，青色十字是实际读色中心；上下文图片可能出现其他实体，但输入颜色和描述有效像素均按原规则过滤。t 是原生时刻，w 是 F2 最终权重。')
 image(E/'output/figures/all_sources.png',6.5)
 p('箱体 ID2571 在 t23/27/29/30 权重约 0.18/0.66/0.10/0.06；其邻域有明显亮度和边界变化。木椅 ID0 在 t4/5/6 为 0.56/0.28/0.16。规则确保同面、局部距离和源标签符合输入条件，但这些并非材料对应真值，不能从权重图断言选对纹理。其余样本及可靠性、源 RGB、坐标、回退原因均保存在 source_audit.json。','Caption')
-p('视觉核对未见代码跨实体取中心像素的违规；几何偏差仍可能把同一面上不同纹理混在 5 mm 邻域内，尤其是印字、椅背边缘。此为可见风险而非新增真值误配率。单凭 mask 消失不能确认真实遮挡，因此可见—遮挡—再显露专项测试记为 NA，不主张长时间遮挡恢复。','Caption')
+p('对冻结标签的核对未见跨实体取中心像素的代码违规；真实标签可能有误，几何偏差仍可能把同一面上不同纹理混在 5 mm 邻域内，尤其是印字、椅背边缘。此为可见风险而非新增真值误配率。单凭 mask 消失不能确认真实遮挡，因此可见—遮挡—再显露专项测试记为 NA，不主张长时间遮挡恢复。','Caption')
 page('全部评价帧的完整组合图')
 image(E/'output/figures/dev1_full.png',7)
 image(E/'output/figures/dev2_full.png',7)
