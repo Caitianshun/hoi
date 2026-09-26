@@ -95,8 +95,10 @@ def run(freeze,output):
         summary={}
         for reg in ['full','foreground','background']:
             rs=[r for r in rows if r['method']==method and r['group']==group and r['region']==reg];assert len(rs)==(16 if group=='test' else 268)
-            mse=sum(r['sse_rgb_mean'] for r in rs)/sum(r['pixels'] for r in rs)
-            summary[reg]=dict(frames=len(rs),**{k:float(np.mean([r[k] for r in rs])) for k in ['psnr_db','ssim','lpips_spatial_mean']},pooled_mse=mse,pooled_psnr_db=float(-10*np.log10(max(mse,1e-12))))
+            valid=[r for r in rs if r['pixels']>0 and r['sse_rgb_mean'] is not None]
+            mse=sum(r['sse_rgb_mean'] for r in valid)/sum(r['pixels'] for r in valid) if valid else None
+            means={k:float(np.mean([r[k] for r in rs if r[k] is not None])) if any(r[k] is not None for r in rs) else None for k in ['psnr_db','ssim','lpips_spatial_mean']}
+            summary[reg]=dict(frames=len(rs),valid_frames=len(valid),**means,pooled_mse=mse,pooled_psnr_db=float(-10*np.log10(max(mse,1e-12))) if mse is not None else None)
         summaries[f'{method}_{group}']=summary
     # Deliberately no H1-minus-H0 paired delta: native H0 has stronger preprocessing
     # and historical stage split uncertainty, although image IDs align.
