@@ -8,9 +8,10 @@ embeds previously generated comparison PNGs. Rendering/visual QA is separate.
 Required report_content.json arrays: summary_paragraphs, behave_interpretation,
 hos_interpretation, next_decision, limitations. Optional: title, subtitle,
 coverage_interpretation, incidents, sources=[{label,url,detail}].
-Optional costs.json: totals=[{label,value,unit,note}], preprocessing=
-[{name,seconds,device,note}], notes=[str]. Formal run costs always come directly
-from terminal run.json, not from narrative numbers.
+Required costs.json with optional fields: totals=[{label,value,unit,note}],
+preprocessing=[{name,seconds,device,note}], notes=[str]. Formal run costs always
+come directly from terminal run.json, not from narrative numbers. Package the
+finished and visually verified report with code/package_results.py separately.
 """
 from __future__ import annotations
 import argparse
@@ -65,13 +66,10 @@ def asset(value):
 
 
 def numeric(x,d=3,signed=False):
-    if x is None:return 'NA'
-    if isinstance(x,(int,float)) and not math.isfinite(x):return 'NA'
-    return f'{float(x):+.{d}f}' if signed else f'{float(x):.{d}f}'
-
-
-def string_num(x):
-    return 'NA' if x in ('',None) else numeric(float(x))
+    if x is None or isinstance(x,str) and not x.strip():return 'NA'
+    value=float(x)
+    if not math.isfinite(value):return 'NA'
+    return f'{value:+.{d}f}' if signed else f'{value:.{d}f}'
 
 
 def csv_rows(path):
@@ -81,6 +79,79 @@ def csv_rows(path):
 def half_width(values):
     # Full checksums stay copyable while naturally wrapping in Word paragraphs.
     return '  '.join(values)
+
+
+def unique_index(rows,fields,label):
+    keys=[tuple(row[field] for field in fields) for row in rows]
+    assert len(keys)==len(set(keys)),f'Duplicate records in {label}'
+    return set(keys)
+
+
+def validate_coverage(run,B,H,fmanifest):
+    """Check saved metadata/CSV coverage before any comparison PNG is opened.
+
+    Counts alone can hide one duplicate plus one missing frame. Validate exact
+    frozen IDs for all E, paired input, full training metrics and HOS test rows.
+    This does not recompute metrics or decode source GT/render arrays.
+    """
+    assert B['status']=='completed' and H['status']=='completed'
+    assert B['same_input_system_comparison_not_single_variable_ablation'] is True
+    assert B['ref_conditioned_B_F_excluded'] is True
+    assert H['direct_fair_H0_H1_delta'] is None
+    figures=fmanifest['figures'];expected_figures=set();expected_metrics=set();expected_fit=set();e_ids={}
+    for dev,n in [('dev1',114),('dev2',98)]:
+        base=run/'inputs'/f'behave_{dev}'
+        train=read(base/'manifest.json')['frames'];ev=read(base/'evaluation_manifest.json')
+        assert len(train)==n and len(unique_index(train,['frame_id'],dev+' train'))==n
+        expected_e=5 if dev=='dev1' else 4
+        groups={'camera1_E':ev['frames'],'camera0_paired_E':ev['paired_camera0_frames'],'camera0_full_training_fit':train}
+        assert len(ev['frames'])==len(ev['paired_camera0_frames'])==expected_e
+        assert {r['frame_id'] for r in ev['frames']}=={r['frame_id'] for r in ev['paired_camera0_frames']}
+        e_ids[dev]=[r['frame_id'] for r in ev['frames']]
+        for group,frames in groups.items():
+            unique_index(frames,['frame_id'],dev+' '+group)
+            preview=frames
+            if group=='camera0_full_training_fit':
+                # Same uniform floor indices as both frozen renderer producers.
+                preview=[frames[i*(n-1)//15] for i in range(16)]
+            expected_figures.update((dev,group,r['frame_id']) for r in preview)
+            target=expected_metrics if group=='camera1_E' else expected_fit
+            target.update((dev,group,r['frame_id'],method,region) for r in frames for method in ['E0','4DGS'] for region in REGIONS)
+            for method in ['E0','4DGS']:
+                for region in REGIONS:
+                    d=B['results'][dev][group]['methods'][method][region]
+                    for metric in ['psnr_db','ssim','lpips_spatial_mean']:
+                        assert d[metric]['requested_frames']==len(frames)
+                        assert 0<=d[metric]['valid_frames']<=len(frames)
+    assert unique_index(figures,['dev','group','frame_id'],'BEHAVE figures')==expected_figures
+    for row in figures:
+        assert row['methods']==['GT','E0','4DGS'] and row['displayed_clipped_to_unit_range'] is True
+        if row['group']=='camera1_E':
+            assert row.get('crop') and len(row['crop_bounds_xyxy'])==4,'Every E requires its fixed crop'
+            x0,y0,x1,y1=row['crop_bounds_xyxy'];assert 0<=x0<x1<=640 and 0<=y0<y1<=480
+    fields=['dev','group','frame_id','method','region']
+    for name,expected in [('metrics_per_frame.csv',expected_metrics),('input_fit.csv',expected_fit)]:
+        rows=csv_rows(run/'evaluation/comparison'/name)
+        assert unique_index(rows,fields,'BEHAVE '+name)==expected
+    assert B['metric_rows']==len(expected_metrics)==90 and B['input_fit_rows']==len(expected_fit)==2210
+    hos_base=run/'inputs/hos_backpack';hos_test=read(hos_base/'evaluation_manifest.json')['frames'];hos_train=read(hos_base/'manifest.json')['frames']
+    test_ids={r['frame_id'] for r in hos_test};train_ids={r['frame_id'] for r in hos_train}
+    assert len(hos_test)==len(test_ids)==16 and len(hos_train)==len(train_ids)==268 and not test_ids&train_ids
+    hfig_ids=[Path(r['path']).stem for r in H['figures']]
+    assert len(hfig_ids)==len(set(hfig_ids))==H['figure_count']==16 and set(hfig_ids)==test_ids
+    for filename,group,ids,methods in [('metrics_per_frame.csv','test',test_ids,['H0','H1']),('input_fit.csv','input_fit',train_ids,['H1'])]:
+        rows=csv_rows(run/'evaluation/hos_comparison'/filename)
+        expected={(group,fid,method,region) for fid in ids for method in methods for region in ['full','foreground','background']}
+        assert unique_index(rows,['group','frame_id','method','region'],'HOS '+filename)==expected
+        for method in methods:
+            for region in ['full','foreground','background']:
+                d=H['results'][method+'_'+group][region]
+                valid=sum(int(r['pixels'])>0 and r['sse_rgb_mean']!='' for r in rows if r['method']==method and r['region']==region)
+                assert d['frames']==len(ids) and d['valid_frames']==valid
+    assert H['native_H0_metrics']['frames']==16
+    assert H['time_boundary_diagnostic']['frame_id'] in test_ids
+    return dict(behave_E_ids=e_ids,behave_E_full_count=9,behave_E_crop_count=9,
+                behave_input_preview_count=32,behave_paired_E_figure_count=9,hos_test_ids=sorted(test_ids),hos_test_figure_count=16)
 
 
 class Report:
