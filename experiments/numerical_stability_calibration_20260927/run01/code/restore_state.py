@@ -30,6 +30,7 @@ def exact(a,b,path='root'):
 def load_completed(path):
     s=torch.load(path,map_location='cpu',weights_only=False)
     assert s['stage']=='fine' and s.get('phase','completed_step')=='completed_step'
+    assert s.get('resumable',True),'Terminal without final zero_grad is not a continuation point'
     assert all(k in s for k in ['model','rng','viewpoint_stack','temp_list','deformation_accum'])
     return s
 def restore_model(model,opt,s):

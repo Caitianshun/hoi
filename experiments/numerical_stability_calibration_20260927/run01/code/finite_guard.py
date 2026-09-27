@@ -31,6 +31,9 @@ class Guard:
         r=self.r;r.phase=phase;bad=[];rows={};missing=[]
         for name,t in walk(values):
             if t is None:missing.append(name);continue
+            if not (t.is_floating_point() or t.is_complex()):
+                if detailed:rows[name]=dict(state='finite_integer',shape=list(t.shape),dtype=str(t.dtype),elements=t.numel())
+                continue
             finite=bool(torch.isfinite(t).all())
             if detailed or not finite:rows[name]=stats(t)
             if not finite:bad.append(name)
