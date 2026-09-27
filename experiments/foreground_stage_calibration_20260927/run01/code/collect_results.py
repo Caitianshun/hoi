@@ -54,10 +54,13 @@ def run():
     ledger=read(RUN/'protocol/gpu_cost_ledger.json');attempts=[]
     for branch in ['W_fine','W_all']:
         rd=RUN/'runs'/branch;result=read(rd/('run.json' if (rd/'run.json').exists() else 'failure.json'))
-        attempts.append(dict(run=branch,**result,terminal_model_bytes=Path(result['checkpoint']).stat().st_size if result.get('checkpoint') else None))
+        discarded=0
+        if branch=='W_all' and (RUN/'protocol/failed_attempts/W_all_initial/failure.json').exists():
+            prior=read(RUN/'protocol/failed_attempts/W_all_initial/failure.json');audit=read(RUN/'protocol/W_all_recovery_audit.json');discarded=prior['optimizer_updates']-audit['checkpoint_optimizer_updates']
+        attempts.append(dict(run=branch,**result,actual_executed_optimizer_updates=result['optimizer_updates']+discarded,discarded_updates_before_recovery=discarded,terminal_model_bytes=Path(result['checkpoint']).stat().st_size if result.get('checkpoint') else None))
     nominal=len((RUN/'protocol/formal_steps.jsonl').read_text().splitlines());temp=len((RUN/'protocol/temporary_steps.jsonl').read_text().splitlines());gpu_seconds=sum(r['wall_seconds'] for r in ledger)
     assert nominal<=31000 and temp<=40 and gpu_seconds<=10800
-    costs=dict(status='available_attempts_accounted',formal_attempts=attempts,formal_attempt_count=len(attempts),formal_nominal_attempts=nominal,formal_optimizer_updates=sum(a['optimizer_updates'] for a in attempts),temporary_nominal_steps=temp,
+    costs=dict(status='available_attempts_accounted',formal_attempts=attempts,formal_attempt_count=len(attempts),formal_nominal_attempts=nominal,formal_optimizer_updates=sum(a['actual_executed_optimizer_updates'] for a in attempts),temporary_nominal_steps=temp,
         gpu_task_wall_seconds=gpu_seconds,gpu_task_hours=gpu_seconds/3600,measurement='Serial GPU process wall time, includes imports/load/export/failed attempts. Not CUDA kernel time.',
         GPU='physical1 RTX3090',peak_PID_MiB=max((r.get('peak_process_nvidia_MiB') or 0) for r in ledger),jobs=[{k:v for k,v in r.items() if k!='samples'} for r in ledger],
         CPU=dict(initial_support=read(RUN/'initialization_support.json')['seconds'],appearance_evaluation=read(RUN/'diagnostics/appearance/summary.json')['seconds'],hos_evaluation=summary['seconds']),
