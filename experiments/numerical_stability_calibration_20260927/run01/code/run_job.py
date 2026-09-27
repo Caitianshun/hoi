@@ -17,9 +17,13 @@ def run(a):
         p=subprocess.Popen(command,stdout=f,stderr=subprocess.STDOUT,env=env,cwd=ROOT)
         (out/'running.json').write_text(json.dumps(dict(pid=p.pid,start=start,command=command)))
         try:code=p.wait(timeout=remaining)
-        except subprocess.TimeoutExpired:p.terminate();code=p.wait(timeout=20)
+        except subprocess.TimeoutExpired:
+            p.terminate()
+            try:code=p.wait(timeout=10)
+            except subprocess.TimeoutExpired:p.kill();code=p.wait()
     row=dict(label=a.label,category=a.category,command=command,pid=p.pid,returncode=code,start_unix=start,end_unix=time.time(),wall_seconds=time.time()-start,physical_GPU=1)
     with jobs.open('a') as f:f.write(json.dumps(row)+'\n')
     (out/'attempt.json').write_text(json.dumps(row,indent=2)+'\n');print(json.dumps(row))
+    return row
 if __name__=='__main__':
     p=argparse.ArgumentParser();p.add_argument('--label',required=True);p.add_argument('--category',choices=['A','B'],default='A');p.add_argument('command',nargs=argparse.REMAINDER);run(p.parse_args())
