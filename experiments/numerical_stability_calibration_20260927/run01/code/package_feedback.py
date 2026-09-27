@@ -12,6 +12,7 @@ def run():
     selected={RUN/n for n in required};assert all(p.exists() for p in selected)
     patterns=['code/*.py','configs/*.json','protocol/*.json','protocol/*.jsonl','protocol/user_guidance_source.md','minimal_repro/*.json','minimal_repro/*.md','minimal_repro/*.py','minimal_repro/*.npz','diagnostics/*.jpg','diagnostics/*.json','evaluation/summary.json','evaluation/figures/*.jpg','feedback_arrays/*.npz','feedback_arrays/*.json','runs/*/result.json','runs/*/run.json','runs/*/failure.json','runs/*/effective_config.json','runs/*/first_bad_tensor.json','runs/*/restore_verification.json','runs/*/kernel_case_analysis.json','runs/*/summary.json','runs/*/domain_choice.json','runs/B_*/sampling_order.jsonl','logs/*/attempt.json','replay_events.jsonl']
     for pattern in patterns:selected.update(RUN.glob(pattern))
+    selected.update(RUN.glob('runs/*/source_adaptation.json'))
     selected={p for p in selected if p.is_file() and p.name not in ['package_verification.json','final_sync.json']}
     for p in selected:assert p.suffix not in ['.pt','.pth','.so'] and 'source_snapshots' not in p.parts
     content=[dict(name=str(p.relative_to(RUN)),bytes=p.stat().st_size,sha256=sha(p)) for p in sorted(selected)]

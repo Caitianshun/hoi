@@ -68,7 +68,7 @@ def allowed(path: Path) -> bool:
         return True
     if name.startswith("experiments/numerical_stability_calibration_20260927/run01/"):
         # Diagnostic runtime snapshots and protocol/result JSON stay private.
-        return "/code/" in name and path.suffix in SOURCE_EXTENSIONS
+        return relative.parent.as_posix() == "experiments/numerical_stability_calibration_20260927/run01/code" and path.suffix in SOURCE_EXTENSIONS
     if relative.parts[0] == "patches":
         return len(relative.parts) == 2 and (path.suffix == ".patch" or path.name == "README.md")
     if name.startswith("scripts/systemd/") and path.suffix in {".service", ".timer"}:
