@@ -27,16 +27,16 @@ def run():
         if key[0]!='retained':continue
         gt=cv2.imread(f['image_path'])[...,::-1].astype(np.float64)/255;fg=cv2.imread(f['mask_path'],0)>=128
         for branch in ['H1','W_fine','W_all']:
-            r=mindex[branch,*key,'full']
+            r=mindex[(branch,)+key+('full',)]
             if r['status']!='completed':
-                assert all(mindex[branch,*key,reg]['psnr_db']=='' for reg in ['full','foreground','background']);continue
+                assert all(mindex[(branch,)+key+(reg,)]['psnr_db']=='' for reg in ['full','foreground','background']);continue
             assert sha(r['raw_render_path'])==r['raw_render_sha256'];raw=np.load(r['raw_render_path'])['rgb'];assert raw.dtype==np.float32 and np.isfinite(raw).all()
             err=np.square(np.clip(raw.astype(np.float64),0,1)-gt).mean(-1)
             for reg,mask in [('full',np.ones(fg.shape,bool)),('foreground',fg),('background',~fg)]:
-                row=mindex[branch,*key,reg];sse=float(err[mask].sum());psnr=-10*np.log10(max(sse/int(mask.sum()),1e-12))
+                row=mindex[(branch,)+key+(reg,)];sse=float(err[mask].sum());psnr=-10*np.log10(max(sse/int(mask.sum()),1e-12))
                 delta=abs(psnr-float(row['psnr_db']));assert delta<1e-7;assert abs(sse-float(row['sse_rgb_mean']))<1e-6;differences.append(delta)
     for d in paired:
-        left,right=d['comparison'].split('-');k=d['split'],d['frame_id'],d['region'];a=mindex[left,*k];b=mindex[right,*k]
+        left,right=d['comparison'].split('-');k=d['split'],d['frame_id'],d['region'];a=mindex[(left,)+k];b=mindex[(right,)+k]
         assert a['pixels']==b['pixels']
         for metric in ['psnr_db','ssim','lpips_spatial_mean']:
             if not a[metric] or not b[metric]:assert d[metric]==''
