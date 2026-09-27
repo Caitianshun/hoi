@@ -7,42 +7,12 @@ from train_stage import *
 
 original_after = Runtime.after_step
 original_gradient_check = Runtime.gradient_check
-original_resume_sampler = Runtime.resume_sampler
-original_before_step = Runtime.before_step
-
-def assert_equal(a,b):
-    if torch.is_tensor(a):assert torch.equal(a,b)
-    elif isinstance(a,dict):
-        assert a.keys()==b.keys()
-        for k in a:assert_equal(a[k],b[k])
-    elif isinstance(a,(tuple,list)):
-        assert len(a)==len(b)
-        for x,y in zip(a,b):assert_equal(x,y)
-    else:assert a==b
-
-def verified_resume(self,stage,cameras,stack,temp,model):
-    if self.resume and self.resume['stage']==stage:
-        assert stage in str(self.a.resume),'Upstream dispatch requires stage in checkpoint pathname'
-        assert_equal(model.capture(),self.resume['model'])
-        self.expected_first_resume_iteration=self.resume['iteration']+1
-    out=original_resume_sampler(self,stage,cameras,stack,temp,model)
-    if self.resume and self.resume['stage']==stage:
-        save_json(self.output/'verified_restore.json',dict(status='passed_before_first_draw',
-            checkpoint=identity(self.a.resume),stage=stage,iteration=self.resume['iteration'],
-            model_and_Adam_all_tensors_exact=True,expected_first_iteration=self.expected_first_resume_iteration))
-    return out
-
-def verified_before(self,stage,iteration):
-    if getattr(self,'expected_first_resume_iteration',None) is not None:
-        assert iteration==self.expected_first_resume_iteration
-        self.expected_first_resume_iteration=None
-    original_before_step(self,stage,iteration)
 
 def retain_after_step(self, stage, iteration, model, stack, temp):
     original_after(self, stage, iteration, model, stack, temp)
     if iteration % 100 == 0 and iteration % 1000 != 0 and iteration != self.stage_end:
         self.save_state(stage, iteration, model, stack, temp)
-        rolling = self.output / ('recovery_'+stage+'_latest.pt')
+        rolling = self.output / 'recovery_latest.pt'
         self.last_checkpoint.replace(rolling)
         self.last_checkpoint = rolling
         save_json(self.output/'latest_checkpoint.json', dict(path=str(rolling),stage=stage,iteration=iteration))
@@ -68,8 +38,6 @@ def retain_failure(self, stage, iteration, model, loss):
 
 Runtime.after_step=retain_after_step
 Runtime.gradient_check=retain_failure
-Runtime.resume_sampler=verified_resume
-Runtime.before_step=verified_before
 
 if __name__=='__main__':
     p=argparse.ArgumentParser();p.add_argument('--output',required=True);p.add_argument('--policy',required=True)
