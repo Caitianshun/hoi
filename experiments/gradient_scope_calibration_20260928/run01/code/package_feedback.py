@@ -40,7 +40,7 @@ def run():
     selected={RUN/p for p in required}
     for pattern in ['code/*.py','configs/*.json','protocol/*.json','protocol/*.jsonl','protocol/user_guidance_source.md','logs/*/*.json','logs/*/console.log','diagnostics/*/*.json','diagnostics/B_U_verified/*_contributions.npz','diagnostics/B_F/*_contributions.npz','diagnostics/B_U_verified/*_fixed_rows.npz','diagnostics/B_F/*_fixed_rows.npz','diagnostics/B_U_verified/*_time_camera.png','diagnostics/B_F/*_time_camera.png','diagnostics/gradient_localization/*samples.npz','inherited_figures/*.jpg','feedback_arrays/*.npz','feedback_arrays/*.json','output/report_figures/routing_gate.png','output/report_figures/contribution_summary.png']:
         selected.update(RUN.glob(pattern))
-    selected={p for p in selected if p.is_file() and p.name not in ['package_verification.json','final_sync.json']}
+    selected={p for p in selected if p.is_file() and 'source_snapshots' not in p.parts and p.name not in ['package_verification.json','final_sync.json']}
     assert all('source_snapshots' not in p.parts and p.suffix not in ['.pt','.pth','.so','.docx'] for p in selected)
     content=[dict(name=str(p.relative_to(RUN)),bytes=p.stat().st_size,sha256=sha(p)) for p in sorted(selected)]
     output=RUN/'output/V6_feedback.zip'
