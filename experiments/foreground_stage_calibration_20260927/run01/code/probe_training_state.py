@@ -22,15 +22,16 @@ def gradient_stats(a,b,params):
         NA_reason='Stage/representation does not connect this group to region RGB, or zero norm/empty region' if na is None or nb is None or not na or not nb else None)
 def run():
     assert os.environ.get('CUDA_VISIBLE_DEVICES')=='1';torch.set_num_threads(4);started=time.monotonic()
-    assert read(RUN/'protocol/finals.json')['status']=='both_new_terminal_states_frozen'
+    assert read(RUN/'protocol/finals.json')['status'] in ['both_new_terminal_states_frozen','all_authorized_attempts_closed']
     fixed=read(RUN/'protocol/fixed_examples.json');manifest=read(OLD/'inputs/hos_backpack/manifest.json');lookup={x['frame_id']:x for x in manifest['frames']}
     probe_ids=set(fixed['gradient_probe_frame_ids']);preview_ids=fixed['training_frame_ids'];out=RUN/'diagnostics/state_probes';out.mkdir(exist_ok=True)
     target=RUN/'state_probes.jsonl';assert not target.exists()
-    snapshots=[]
+    snapshots=[];missing=[]
     for branch,rd in [('H1',OLD/'runs/hos_backpack_formal'),('W_fine',RUN/'runs/W_fine'),('W_all',RUN/'runs/W_all')]:
         for stage,iteration in [('coarse',3000),('fine',1000),('fine',14000)]:
             if branch=='W_fine' and stage=='coarse':continue
-            snapshots.append((branch,rd,stage,iteration))
+            if (rd/f'checkpoint_{stage}_{iteration:06d}.pt').exists():snapshots.append((branch,rd,stage,iteration))
+            else:missing.append(dict(branch=branch,stage=stage,iteration=iteration,reason='Authorized attempt failed before snapshot; not reconstructed'))
     summary=[]
     with target.open('w',buffering=1) as log:
         for branch,rd,stage,iteration in snapshots:
@@ -67,5 +68,5 @@ def run():
             after=identity(checkpoint);assert before==after;assert initial_rng==rng_digest(),'Probe consumed RNG'
             summary.append(dict(branch=branch,stage=stage,iteration=iteration,checkpoint=before,attributes=attrs,deformation=displacements,previews=previews,checkpoint_unchanged=True,RNG_unchanged=True,optimizer_steps=0))
             print(branch,stage,iteration,'probed',flush=True);del model,params,groups;torch.cuda.empty_cache()
-    save_json(out/'manifest.json',dict(status='completed',snapshots=summary,probe_frame_ids=sorted(probe_ids,key=int),training_preview_frame_ids=preview_ids,rows=len(snapshots)*len(probe_ids),W_fine_coarse='Shared H1 coarse snapshot analyzed once',seconds=time.monotonic()-started,optimization_steps=0,formal_sampler_untouched=True))
+    save_json(out/'manifest.json',dict(status='completed',snapshots=summary,missing_snapshots=missing,probe_frame_ids=sorted(probe_ids,key=int),training_preview_frame_ids=preview_ids,rows=len(snapshots)*len(probe_ids),W_fine_coarse='Shared H1 coarse snapshot analyzed once',seconds=time.monotonic()-started,optimization_steps=0,formal_sampler_untouched=True))
 if __name__=='__main__':run()

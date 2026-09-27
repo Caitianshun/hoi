@@ -64,10 +64,10 @@ def appearance(net):
     save_json(dest,dict(status='completed',summary=summary,figures=figs,camera_checks=m['camera_checks'],rows=len(rows),seconds=time.monotonic()-start,all_render_parities=m['all_default_and_geometry_parities_passed'],scope='Frozen appearance diagnostic; not a new trained model or geometric accuracy proof'))
 
 def hos(net):
-    freeze=read(RUN/'protocol/finals.json');assert freeze['status']=='both_new_terminal_states_frozen'
+    freeze=read(RUN/'protocol/finals.json');assert freeze['status'] in ['both_new_terminal_states_frozen','all_authorized_attempts_closed']
     for a in freeze['assets']:assert sha(a['path'])==a['sha256']
     start=time.monotonic();examples=read(RUN/'protocol/fixed_examples.json');crop={r['frame_id']:r['crop_bounds_xyxy'] for r in examples['hos_crops']};new={}
-    for branch in ['W_fine','W_all']:
+    for branch in freeze['runs']:
         m=read(RUN/'evaluation'/branch/'manifest.json');assert m['status']=='completed' and m['freeze']['sha256']==sha(RUN/'protocol/finals.json')
         new[branch]={(r['split'],r['frame_id']):r for r in m['rows']};assert len(new[branch])==284
     old=read(OLD/'evaluation/H1/manifest.json');old_index={('train' if r['group']=='input_fit' else 'retained',r['frame_id']):r for r in old['frames']};assert len(old_index)==284
@@ -84,21 +84,26 @@ def hos(net):
         for i,frame in enumerate(frames):
             fid=frame['frame_id'];gt=cv2.imread(frame['image_path'])[...,::-1].astype(np.float64)/255.;labels=(cv2.imread(frame['mask_path'],0)>=128).astype(np.uint8);show=split=='retained' or fid in examples['training_frame_ids'];preds={}
             for branch in ['H1','W_fine','W_all']:
-                asset=old_index[split,fid]['render'] if branch=='H1' else new[branch][split,fid]['render'];assert sha(asset['path'])==asset['sha256']
+                available=branch=='H1' or branch in new
+                asset=old_index[split,fid]['render'] if branch=='H1' else new[branch][split,fid]['render'] if available else dict(path=None,sha256=None)
+                if available:assert sha(asset['path'])==asset['sha256']
                 if branch=='H1':
                     result={reg:baseline[split,fid,reg] for reg in ['full','foreground','background']}
                     if show:preds[branch]=np.load(asset['path'])['rgb']
-                else:
+                elif available:
                     pred=np.load(asset['path'])['rgb'];result,_=evaluate_image(pred,gt,labels,net)
                     if show:preds[branch]=pred
+                else:
+                    result={reg:{**baseline[split,fid,reg],**{k:None for k in ['mse','sse_rgb_mean','psnr_db','ssim','lpips_spatial_mean','full_error_share']}} for reg in ['full','foreground','background']}
+                    if show:preds[branch]=np.ones_like(gt)*.85
                 for region in ['full','foreground','background']:
-                    rows.append(dict(run=branch,split=split,frame_id=fid,source_frame_index=int(fid),time=frame['time'],time_units='normalized nominal source frame index; original index is not measured seconds',extrapolation=frame.get('extrapolation',int(fid)==0),region=region,region_source='published mask >=128 dynamic-subject foreground; includes carried bag but may exclude stationary bag',
+                    rows.append(dict(run=branch,status='completed' if available else 'failed_no_terminal',NA_reason=None if available else 'Formal attempt failed; no replacement model',split=split,frame_id=fid,source_frame_index=int(fid),time=frame['time'],time_units='normalized nominal source frame index; original index is not measured seconds',extrapolation=frame.get('extrapolation',int(fid)==0),region=region,region_source='published mask >=128 dynamic-subject foreground; includes carried bag but may exclude stationary bag',
                         **result[region],raw_clipped_policy='clip raw float RGB to [0,1] before metrics',raw_render_path=asset['path'],raw_render_sha256=asset['sha256']))
-                indices.append(dict(run=branch,split=split,frame_id=fid,**asset))
+                if available:indices.append(dict(run=branch,split=split,frame_id=fid,**asset))
             if show:
-                path=RUN/'evaluation/figures'/f'{split}_{fid}_full.jpg';f=figure(path,[gt,*[preds[b] for b in ['H1','W_fine','W_all']]],[fid+' GT','H1 uniform','W fine balanced','W all balanced'],440);figs.append(dict(**f,split=split,frame_id=fid,kind='full',branch_order=['GT','H1','W_fine','W_all'],raw_or_clipped='clipped [0,1]'))
+                path=RUN/'evaluation/figures'/f'{split}_{fid}_full.jpg';f=figure(path,[gt,*[preds[b] for b in ['H1','W_fine','W_all']]],[fid+' GT','H1 uniform','W fine balanced' if 'W_fine' in new else 'W fine NA failed','W all balanced' if 'W_all' in new else 'W all NA failed'],440);figs.append(dict(**f,split=split,frame_id=fid,kind='full',branch_order=['GT','H1','W_fine','W_all'],raw_or_clipped='clipped [0,1]'))
                 if split=='retained':
-                    x0,y0,x1,y1=crop[fid];path=path.with_name(path.stem.replace('_full','_foreground')+'.jpg');f=figure(path,[x[y0:y1,x0:x1] for x in [gt,*[preds[b] for b in ['H1','W_fine','W_all']]]],[fid+' GT crop','H1 crop','W fine crop','W all crop'],280);figs.append(dict(**f,split=split,frame_id=fid,kind='foreground_crop',crop_bounds_xyxy=crop[fid],branch_order=['GT','H1','W_fine','W_all'],raw_or_clipped='clipped [0,1]'))
+                    x0,y0,x1,y1=crop[fid];path=path.with_name(path.stem.replace('_full','_foreground')+'.jpg');f=figure(path,[x[y0:y1,x0:x1] for x in [gt,*[preds[b] for b in ['H1','W_fine','W_all']]]],[fid+' GT crop','H1 crop','W fine crop' if 'W_fine' in new else 'W fine NA failed','W all crop' if 'W_all' in new else 'W all NA failed'],280);figs.append(dict(**f,split=split,frame_id=fid,kind='foreground_crop',crop_bounds_xyxy=crop[fid],branch_order=['GT','H1','W_fine','W_all'],raw_or_clipped='clipped [0,1]'))
             if (i+1)%32==0:print(split,i+1,flush=True)
     csvwrite(RUN/'metrics_per_frame.csv',rows);save_json(RUN/'protocol/raw_render_index.json',dict(assets=indices))
     summaries={}
@@ -121,6 +126,8 @@ def hos(net):
                 paired[pair][split][region]={k:dict(mean=float(np.mean([d[k] for d in dd if d[k] is not None])),median=float(np.median([d[k] for d in dd if d[k] is not None])),valid_frames=sum(d[k] is not None for d in dd)) if any(d[k] is not None for d in dd) else dict(mean=None,median=None,valid_frames=0) for k in METRICS}
     csvwrite(RUN/'paired_differences.csv',differences);rules=read(RUN/'configs/v4.json')['validation'];gates={}
     for branch in ['W_fine','W_all']:
+        if branch not in new:
+            gates[branch]=dict(numerical_rules=None,numerical_pass=None,visual_quality_gate='NA',promotion_status='not evaluable: failed formal attempt');continue
         p=paired[branch+'-H1']['retained'];fg=p['foreground'];bg=p['background'];tests=dict(FG_PSNR_mean=fg['psnr_db']['mean']>=rules['FG_PSNR_mean_delta_min'],FG_PSNR_median=fg['psnr_db']['median']>rules['FG_PSNR_paired_median_strict_min'],FG_LPIPS=fg['lpips_spatial_mean']['mean']<=rules['FG_LPIPS_mean_delta_max'],BG_PSNR=bg['psnr_db']['mean']>=rules['BG_PSNR_mean_delta_min']);gates[branch]=dict(numerical_rules=tests,numerical_pass=all(tests.values()),visual_quality_gate='pending full fixed-image review',promotion_status='pending visual review; numeric gate is not sufficient by itself')
     save_json(RUN/'evaluation/summary.json',dict(status='completed',summaries=summaries,paired=paired,gates=gates,rows=len(rows),paired_rows=len(differences),figures=figs,seconds=time.monotonic()-start,
         metrics='per-pixel RGB-channel-mean SSE; MSE=SSE/pixels; original 7x7 SSIM and AlexNet0.1 spatial LPIPS with cross-boundary receptive fields',H1_metrics_reused_verified_V3=True,individual_human_bag_metrics=None,individual_region_NA_reason='No independent instance masks',retained_set='16 already-inspected development frames; separate15 supplemental, no replacement of16 main table'))
