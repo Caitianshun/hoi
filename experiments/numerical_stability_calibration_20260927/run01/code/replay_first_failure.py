@@ -81,7 +81,7 @@ def make_loop(runtime,observed_render):
       'loss = Ll1\n        if stage == "fine" and hyper.time_smoothness_weight != 0:\n            # tv_loss = 0\n            tv_loss = gaussians.compute_regulation(hyper.time_smoothness_weight, hyper.l1_time_planes, hyper.plane_tv_weight)\n            loss += tv_loss':'loss=Ll1+runtime.regularization(gaussians,hyper,stage,Ll1)',
       'loss.backward()':'runtime.before_backward(loss,gaussians)\n        loss.backward()',
       'if torch.isnan(loss).any():\n            print("loss is nan,end training, reexecv program now.")\n            os.execv(sys.executable, [sys.executable] + sys.argv)':'runtime.gradient_check(stage,iteration,gaussians,loss)',
-      'iter_end.record()':"runtime.guard.check('screen_gradients',viewspace_point_tensor_list[0].grad,runtime.detail)\n        runtime.guard.check('screen_gradient_aggregate',viewspace_point_tensor_grad,runtime.detail)\n        iter_end.record()",
+      'iter_end.record()':"runtime.guard.check('screen_gradients',[v.grad for v in viewspace_point_tensor_list],runtime.detail)\n        runtime.guard.check('screen_gradient_aggregate',viewspace_point_tensor_grad,runtime.detail)\n        iter_end.record()",
       'gaussians.optimizer.step()':'runtime.optimizer_step(gaussians)'}
     for old,new in changes.items():assert source.count(old)==1,old;source=source.replace(old,new)
     source+='\n            runtime.after_step(stage,iteration,gaussians,viewpoint_stack,temp_list)\n'
@@ -102,7 +102,7 @@ def run(a):
         pc=read(Path(a.replay_from).parent/'effective_config.json');assert parent['effective_config_sha256']==sha(Path(a.replay_from).parent/'effective_config.json')
         for key,obj in [('hidden',hidden),('optimization',opt),('pipeline',pipe)]:assert pc[key]==vars(obj)
     dataset.source_path=str(OLD/'inputs/hos_backpack/manifest.json');dataset.model_path=str(out.absolute());dataset.render_process=False
-    cfg=dict(model=vars(dataset),hidden=vars(hidden),optimization=vars(opt),pipeline=vars(pipe),seed=12345,policy=a.policy,parent=identity(a.replay_from),inherited_effective_config=identity(V4/'runs/W_all/effective_config.json'),allowed_cross_directory_changes=['model.model_path','diagnostic observers','output identity','window stop boundary'],scientific_schedule_unchanged=True)
+    cfg=dict(model=vars(dataset),hidden=vars(hidden),optimization=vars(opt),pipeline=vars(pipe),seed=12345,policy=a.policy,scale_bound=a.scale_bound,parent=identity(a.replay_from),inherited_effective_config=identity(V4/'runs/W_all/effective_config.json'),allowed_cross_directory_changes=['model.model_path','diagnostic observers','output identity','window stop boundary','declared scale_bound if explicitly selected'],scientific_schedule_unchanged=True)
     out.mkdir(parents=True);save_json(out/'effective_config.json',cfg)
     rt=Runtime(a,parent,cfg);model=None
     try:
@@ -119,5 +119,5 @@ def run(a):
         raise
     finally:rt.close()
 if __name__=='__main__':
-    p=argparse.ArgumentParser();p.add_argument('--replay-from',required=True);p.add_argument('--output',required=True);p.add_argument('--steps',type=int,default=8);p.add_argument('--policy',default='balanced_all');p.add_argument('--light',action='store_true');p.add_argument('--anomaly',action='store_true')
+    p=argparse.ArgumentParser();p.add_argument('--replay-from',required=True);p.add_argument('--output',required=True);p.add_argument('--steps',type=int,default=8);p.add_argument('--policy',default='balanced_all');p.add_argument('--light',action='store_true');p.add_argument('--anomaly',action='store_true');p.add_argument('--scale-bound',type=float)
     a=p.parse_args();a.check=True;run(a)
