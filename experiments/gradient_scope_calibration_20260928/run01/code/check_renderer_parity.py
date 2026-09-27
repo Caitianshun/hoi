@@ -15,6 +15,7 @@ class Runtime:
     def __init__(self,bound):self.a=SimpleNamespace(scale_bound=bound);self.output=RUN/'diagnostics/parity';self.output.mkdir(exist_ok=True);self.guard=Guard();self.detail=False
     def event(self,*a,**k):pass
 def run():
+    assert not (RUN/'renderer_parity.json').exists(), 'Do not overwrite frozen parity evidence'
     torch.set_num_threads(4);assert os.environ['CUDA_VISIBLE_DEVICES']=='1';budget=CallBudget('D0_parity')
     frames=read(OLD/'inputs/hos_backpack/manifest.json')['frames'];by={x['frame_id']:x for x in frames}
     rows=[];bound=read(V5/'protocol/fine_transition.json')['scene_extent']

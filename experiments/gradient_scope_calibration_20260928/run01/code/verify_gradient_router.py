@@ -7,6 +7,7 @@ from gradient_router import *
 from loss_policy import regional_rgb
 from budget import CallBudget
 def run():
+    assert not (RUN/'routing_equivalence.json').exists(), 'Immutable prior diagnostic exists; use a separately authorized isolated run'
     torch.set_num_threads(4);budget=CallBudget('D2_gradients')
     parent=V5/'runs/B_U/checkpoint_fine_001000.pt';model,(_,hidden,_,pipe),state=load_model(parent,V5/'runs/B_U/effective_config.json');del state
     assert hidden.no_do and hidden.no_dshs;bound=read(V5/'runs/B_U/effective_config.json')['scale_bound'];render=make_renderer(bound)
