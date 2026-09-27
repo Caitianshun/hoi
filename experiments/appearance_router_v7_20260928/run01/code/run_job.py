@@ -13,16 +13,16 @@ def run(a):
     env=os.environ.copy();env.update(CUDA_VISIBLE_DEVICES='1',OMP_NUM_THREADS='4')
     if a.category=='D':env['CUDA_LAUNCH_BLOCKING']='1'
     else:env.pop('CUDA_LAUNCH_BLOCKING',None)
-    start=time.time()
+    start=time.time();budget_timeout=False
     with (out/'console.log').open('w') as f:
         p=subprocess.Popen(command,stdout=f,stderr=subprocess.STDOUT,env=env,cwd=ROOT)
         (out/'running.json').write_text(json.dumps(dict(pid=p.pid,start=start,command=command)))
         try:code=p.wait(timeout=remaining)
         except subprocess.TimeoutExpired:
-            p.terminate()
+            budget_timeout=True;p.terminate()
             try:code=p.wait(timeout=10)
             except subprocess.TimeoutExpired:p.kill();code=p.wait()
-    row=dict(label=a.label,category=a.category,command=command,pid=p.pid,returncode=code,start_unix=start,end_unix=time.time(),wall_seconds=time.time()-start,physical_GPU=1)
+    row=dict(label=a.label,category=a.category,command=command,pid=p.pid,returncode=code,start_unix=start,end_unix=time.time(),wall_seconds=time.time()-start,physical_GPU=1,budget_timeout=budget_timeout)
     with jobs.open('a') as f:f.write(json.dumps(row)+'\n')
     (out/'attempt.json').write_text(json.dumps(row,indent=2)+'\n');print(json.dumps(row))
     return row
