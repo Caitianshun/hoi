@@ -14,7 +14,8 @@ def run(output):
     model=official.GaussianModel(dataset.sh_degree,hidden);scene=ProtocolScene(dataset,model);cameras=scene.getTrainCameras()
     extent=scene.cameras_extent;save_json(out/'domain_choice.json',dict(scale_upper_bound=extent,source='Inherited train-only scene_extent',formula='exp(min(final_log_scale, log(scene_extent)))',derivative='original below upper bound; zero above; PyTorch clamp boundary convention',scope='Rendered final scales only; canonical parameters and density rules unchanged'))
     src=inspect.getsource(gaussian_renderer.render);a='scales_final = pc.scaling_activation(scales_final)';assert src.count(a)==1
-    src=src.replace(a,'scales_final = pc.scaling_activation(bound_log_scale(scales_final,extent))');ns=gaussian_renderer.__dict__.copy();ns.update(bound_log_scale=bound_log_scale,extent=extent);exec(compile(src,str(out/'render_bounded.py'),'exec'),ns);bounded=ns['render'];(out/'render_bounded.py').write_text(src)
+    snapshot=out/'source_snapshots/render_bounded.py';snapshot.parent.mkdir(exist_ok=True)
+    src=src.replace(a,'scales_final = pc.scaling_activation(bound_log_scale(scales_final,extent))');ns=gaussian_renderer.__dict__.copy();ns.update(bound_log_scale=bound_log_scale,extent=extent);exec(compile(src,str(snapshot),'exec'),ns);bounded=ns['render'];snapshot.write_text(src)
     all_rows=[];comparisons=[];ledger=RUN/'protocol/A_probes.jsonl'
     background=torch.tensor([1.,1.,1.],device='cuda')
     for start,label in [('pre_step_002103.pt','failure'),('pre_step_002101.pt','normal')]:
