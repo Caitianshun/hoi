@@ -26,7 +26,7 @@ def run():
         d={row['name']:None if p.grad is None else p.grad.detach().cpu().clone() for row,p in G+A}
         d.update({f'q/{i}':x.detach().cpu().clone() for i,x in enumerate(gq)});outputs[policy]=d
         del pkgs,pred,q,U,F,R;torch.cuda.empty_cache()
-    epsilon=np.finfo(np.float32).eps;rows=[]
+    epsilon=float(np.finfo(np.float32).eps);rows=[]
     scopes={r['name']:r['scope'] for r in partition};scopes.update({'q/0':'q','q/1':'q'})
     for policy in ['C_route','uniform_all']:
         for name,g in outputs[policy].items():
