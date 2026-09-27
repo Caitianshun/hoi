@@ -48,8 +48,11 @@ def run():
         with (RUN/filename).open('w') as out:
             count=0
             for branch in ['W_fine','W_all']:
+                seen=set();episode=0
                 for line in (RUN/'runs'/branch/filename).read_text().splitlines():
-                    item=json.loads(line);out.write(json.dumps(dict(run=branch,**item))+'\n');count+=1
+                    item=json.loads(line);key=(item['stage'],item['iteration'],item.get('operation'))
+                    if key in seen and episode==0:episode=1
+                    seen.add(key);out.write(json.dumps(dict(run=branch,execution_episode='initial' if episode==0 else 'verified_same_state_recovery',**item))+'\n');count+=1
             counts[filename]=count
     ledger=read(RUN/'protocol/gpu_cost_ledger.json');attempts=[]
     for branch in ['W_fine','W_all']:
