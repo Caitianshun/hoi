@@ -49,5 +49,14 @@ GPU执行入口为code/run_v7.py --config configs/v7.json，但已有流水线�
 
 包内数字表、有限梯度原精度抽样和固定float32图像窗口用于只读复核，不能代替全量重算。全部固定图保留GT与模型对照，属于本地私有反馈。独立几何、track和实例mask未具备，本轮不用于放行图像质量实验；M1新N_eff未重复计算。跨主机Word应用逐项验收未执行，DOCX按图片内嵌与本机渲染检查交付。
 ''')
+    review_path=RUN/'protocol/research_decision_review.json'
+    if review_path.exists():
+        review=json.loads(review_path.read_text())
+        for name in ['NEXT_DECISION.md','CAUSE_ASSESSMENT.md']:
+            with (RUN/name).open('a') as out:
+                out.write('\n## 完整结果后的研究判断\n\n'+review['summary']+'\n\n'+review['mechanism_assessment']+'\n')
+    if (RUN/'protocol/orchestration_issue.json').exists():
+        with (RUN/'CAUSE_ASSESSMENT.md').open('a') as out:
+            out.write('\nCPU收尾监听曾因研究解释器缺少pidfd_open而未启动。保留原错误后，改用系统Python运行相同监听器；正式训练未重启，没有因此增加优化或GPU任务。见protocol/orchestration_issue.json。\n')
     print(decision)
 if __name__=='__main__':run()
