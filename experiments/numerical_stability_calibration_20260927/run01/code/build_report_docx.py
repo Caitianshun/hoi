@@ -95,16 +95,25 @@ def run():
         r.p(f"全部 GPU 任务墙钟累计 {cost['GPU_task_seconds']:.3f} 秒，即 {cost['GPU_task_hours']:.6f} 小时，包含 A、正式训练、渲染、加载和失败。物理 GPU1 RTX3090。A {cost['A_attempts']} 尝试、{cost['A_no_optimizer_probes']} 探针，B {cost['B_attempts']} 尝试；历史 H1 coarse 成本属于复用，另留 V3/V4 成本索引。")
         sampling=read(RUN/'sampling_comparison.json');r.p(f"共有 {sampling['common_rounds']} 轮可对照采样，其中 {sampling['divergent_rounds']} 轮批次不同，首次差异为 {sampling['first_difference']}。采样差异是原随机数和密度操作的实际结果，未为对齐而改训练器。")
         r.p('completed run.json 记录 PyTorch allocated/reserved 峰值、终态及峰值点数；未连续采样 nvidia-smi PID 峰值，故该项 NA。计时是 GPU 任务进程墙钟，不是纯 CUDA 核耗时。检查点写盘成本包含在进程中。')
+        r.page('固定图例中的收益与残留错误')
+        review=read(RUN/'protocol/visual_review.json')
+        for text in review['report_paragraphs']:r.p(text)
+        r.p('后附全部固定开发全图、相同窗口裁剪及训练图，顺序均为 GT、H1、B-U、B-F。逐帧审阅记录与图像身份保存在 protocol/visual_review.json；图像选择和裁剪窗口没有根据本次结果重选。')
 
     r.page('阶段决定与尚未解决的问题')
     if decision:
         for text in decision['decision']:r.p(text)
     else:r.p('正式配对尚未完成最终核验，当前只确认局部数值门槛满足，研究路线决定待两臂收口后给出。不会自动扩大训练矩阵或引入新模块。')
     r.p('尚未解决的问题包括：最终形变为什么在长优化中走向极端尺度；V4 的早期 CUDA 非法访问是否同因；HOS 相机可能使用全视频、动态点云短配对三角化近似静态所带来的偏差。尺度上界不能自动修复错误表面、相对运动或未观测区域，也不能把普通图像指标变成三维几何评价。')
+    r.p('9月29日前收口、最迟10月1日路线决定、10月7日收敛主问题、11月4日核心结果冻结；11月5日至15日连续11个完整自然日保留给集中写作。本轮不自动扩展独立事件、权重扫描或新方法。')
+    r.page('证据、复现与同步边界')
     r.p('实现过程中保留了启动、唯一源码匹配、requires_grad 过滤、前向/反向视图错配等接口失败。它们没有被抹为零成本。最小样例从同一次失败 backward 的相机和几何恢复 opacity，避免把 batch 最后一帧 forward 与第一帧 backward 混用。')
+    if ready:
+        verify=read(RUN/'protocol/verification.json')
+        r.p(f"独立核验复查 {verify['frozen_assets_rehashed']} 项冻结身份、{verify['source_RGB_mask_hashes']} 个 RGB/mask 哈希、{verify['metrics_rows']} 指标行及 {verify['paired_rows']} 配对行；开发 PSNR/SSE 独立重算 {verify['retained_PSNR_rows_recomputed']} 行，PSNR 最大差 {verify['max_PSNR_difference']}。SSIM/LPIPS 沿冻结评价器计算，没有宣称第二套实现全部重算。")
+        r.p('CPU核验曾因开发清单没有逐帧 image_sha256 字段停止。修复后先核对原 V3 冻结 Backpack 压缩包 SHA256，再将开发 RGB/mask 与包内成员逐个比较。原错误和旧源码留存，训练、渲染与指标定义均未改变；修复没有新增 GPU 或优化工作。')
     r.p('同步例外需明确：两份上游派生渲染快照曾因目录位置进入自动同步，已从远端当前版本移除，Git 历史仍保留。AGENTS 中部分历史研究摘要也曾随既有白名单公开，不能笼统称历史摘要全私有；本轮后续入口只记录执行边界和私有路径。原始图像、模型及完整报告没有随这两份快照上传。')
     r.p('ROOT_CAUSE.md、patch_effects.json、first_bad_tensor.json、state_manifest.json、environment.json 与 pair_protocol.json 分别给出异常链、数学域变化、首坏索引、状态身份、运行后端和配对边界。REPRODUCE.md 区分只读复算与需预算的优化命令。最小 ZIP 包含固定浮点小块和关键图，完整模型及环境仍留训练机。')
-    r.p('9月29日前收口、最迟10月1日路线决定、10月7日收敛主问题、11月4日核心结果冻结；11月5日至15日连续11个完整自然日保留给集中写作。新的独立事件、权重扫描或方法模块不属于本轮自动授权。')
 
     if ready and read(RUN/'protocol/finals.json')['runs']:
         figs=read(RUN/'figure_manifest.json')['hos'];ex=read(RUN/'protocol/fixed_examples.json')
