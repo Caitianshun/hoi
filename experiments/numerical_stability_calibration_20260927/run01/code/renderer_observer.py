@@ -28,6 +28,16 @@ def install(runtime):
             runtime.event(phase+'_call',input_shapes=[list(x.shape) if torch.is_tensor(x) else type(x).__name__ for x in args])
             outputs=_fn(*args)
             runtime.guard.check(phase+'_outputs',outputs,runtime.detail)
+            if phase=='raster_forward' and runtime.detail:
+                n=len(args[1]);buffer=outputs[4];assert buffer.data_ptr()%128==0
+                offset=0;fields={}
+                for label,count,bytes_per,dtype,shape in [('depth',n,4,torch.float32,(n,)),('clamped',n*3,1,torch.uint8,(n,3)),('internal_radii',n,4,torch.int32,(n,)),('means2D',n*2,4,torch.float32,(n,2)),('cov3D',n*6,4,torch.float32,(n,6)),('conic_opacity',n*4,4,torch.float32,(n,4)),('color',n*3,4,torch.float32,(n,3))]:
+                    offset=(offset+127)//128*128;size=count*bytes_per
+                    if dtype==torch.float32:fields[label]=buffer[offset:offset+size].view(dtype).view(shape)
+                    offset+=size
+                visible=outputs[3]>0;ids=visible.nonzero().flatten()
+                runtime.visible_gaussian_ids=ids.cpu().tolist()
+                runtime.guard.check('forward_internal_geometry',dict(gaussian_ids=ids,**{k:v[visible] for k,v in fields.items()}),True)
             return outputs
         setattr(backend._C,name,wrapped)
     return scope['render']

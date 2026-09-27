@@ -40,6 +40,8 @@ class Guard:
         r.event(phase,finite=not bad,bad=bad,not_connected=missing,tensors=rows)
         if bad:
             evidence=dict(attempt=r.output.name,iteration=r.iteration,phase=phase,batch=getattr(r,'batch',[]),tensors=rows,nonfinite_names=bad,pre_state=str(r.pre_path),gaussian_index_basis='Parent row indices valid until next topology event')
+            if phase=='forward_internal_geometry':
+                evidence['bad_global_gaussian_rows']={n:sorted(set(r.visible_gaussian_ids[i[0]] for i in rows[n]['indices'])) for n in bad}
             save_json(r.output/'first_bad_tensor.json',evidence)
             from restore_state import clone_cpu
             torch.save(clone_cpu(values),r.output/'first_bad_values.pt')
