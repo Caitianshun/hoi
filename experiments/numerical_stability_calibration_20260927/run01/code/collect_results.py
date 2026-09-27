@@ -1,6 +1,6 @@
 """Independent CPU verification, cost accounting and fixed float32 windows."""
 from common import *
-import csv,time,cv2,numpy as np,torch
+import csv,time,cv2,numpy as np,torch,zipfile
 def rows(p):
     with Path(p).open() as f:return list(csv.DictReader(f))
 def lines(p):return [json.loads(s) for s in Path(p).read_text().splitlines()] if Path(p).exists() else []
@@ -15,11 +15,22 @@ def run():
     checked=[]
     for a in gate['frozen_source_files']+gate['frozen_assets']+final['assets']:
         assert sha(a['path'])==a['sha256'],a['path'];checked.append(a)
-    frames={}
+    frames={};source=read(OLD/'protocol/hos_asset_sources.json');archive_verified=False;input_checks=[]
     for split,name in [('train','manifest.json'),('retained','evaluation_manifest.json')]:
         for f in read(OLD/'inputs/hos_backpack'/name)['frames']:
-            for kind in ['image','mask']:assert sha(f[kind+'_path'])==f[kind+'_sha256']
+            for kind in ['image','mask']:
+                actual=sha(f[kind+'_path']);expected_hash=f.get(kind+'_sha256');origin='frozen train manifest'
+                if expected_hash is None:
+                    assert split=='retained'
+                    if not archive_verified:
+                        assert sha(source['archive_path'])==source['archive_sha256'];archive_verified=True
+                    member='Backpack/'+('images' if kind=='image' else 'masks')+'/'+Path(f[kind+'_path']).name
+                    with zipfile.ZipFile(source['archive_path']) as z:expected_hash=hashlib.sha256(z.read(member)).hexdigest()
+                    origin='member of original SHA-frozen V3 archive'
+                assert actual==expected_hash
+                input_checks.append(dict(path=f[kind+'_path'],sha256=actual,expected_source=origin))
             frames[split,f['frame_id']]=f
+    save_json(RUN/'protocol/input_hash_verification.json',dict(inputs=input_checks,original_archive=source['archive_path'],archive_sha256=source['archive_sha256'],archive_rehashed=archive_verified))
     assert len(frames)==284
     metrics=rows(RUN/'metrics_per_frame.csv');paired=rows(RUN/'paired_differences.csv');index={(r['run'],r['split'],r['frame_id'],r['region']):r for r in metrics}
     expected={(branch,split,fid,reg) for branch in ['H1','B_U','B_F'] for split,fid in frames for reg in ['full','foreground','background']}
