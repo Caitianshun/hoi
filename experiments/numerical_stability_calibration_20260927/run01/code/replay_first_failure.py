@@ -76,7 +76,7 @@ def make_loop(runtime,observed_render):
     changes={
       'count = 0\n    for iteration':'viewpoint_stack,temp_list=runtime.resume_sampler(stage,train_cams,viewpoint_stack,temp_list,gaussians)\n    count = 0\n    for iteration',
       'for iteration in range(first_iter, final_iter+1):':'for iteration in range(first_iter, final_iter+1):\n        runtime.before_step(stage,iteration,gaussians,viewpoint_stack,temp_list)',
-      'images = []':'runtime.selected(viewpoint_cams)\n        images = []',
+      '\n        images = []':'\n        runtime.selected(viewpoint_cams)\n        images = []',
       'Ll1 = l1_loss(image_tensor, gt_image_tensor[:,:3,:,:])':'Ll1=runtime.rgb_loss(image_tensor,gt_image_tensor[:,:3,:,:],viewpoint_cams,stage)',
       'loss = Ll1\n        if stage == "fine" and hyper.time_smoothness_weight != 0:\n            # tv_loss = 0\n            tv_loss = gaussians.compute_regulation(hyper.time_smoothness_weight, hyper.l1_time_planes, hyper.plane_tv_weight)\n            loss += tv_loss':'loss=Ll1+runtime.regularization(gaussians,hyper,stage,Ll1)',
       'loss.backward()':'runtime.before_backward(loss,gaussians)\n        loss.backward()',
@@ -114,7 +114,7 @@ def run(a):
         torch.cuda.synchronize();save_json(out/'result.json',dict(status='window_completed',attempted=rt.attempted,optimizer_step_calls=rt.updates,last_iteration=rt.iteration,checkpoint=identity(rt.last_checkpoint)))
     except BaseException:
         save_json(out/'result.json',dict(status='failed',attempted=rt.attempted,optimizer_step_calls=rt.updates,last_iteration=rt.iteration,phase=rt.phase,pre_state=str(rt.pre_path),traceback=traceback.format_exc()))
-        if not 'illegal memory access' in traceback.format_exc() and model is not None:
+        if not 'illegal memory access' in traceback.format_exc() and model is not None and model.optimizer is not None:
             torch.save(clone_cpu(dict(model=model.capture(),gradients=named_model(model,True),deformation_accum=model._deformation_accum,phase=rt.phase,iteration=rt.iteration)),out/'failure_state_with_gradients.pt')
         raise
     finally:rt.close()
