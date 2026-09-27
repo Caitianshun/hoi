@@ -37,7 +37,10 @@ def run(arm,attempt=''):
             checks['total_repeat_max_abs']=float((total-total_repeat).abs().max());checks['fg_repeat_max_abs']=float((fg-fg_repeat).abs().max())
             save_json(out/(fid+'_contribution_checks.json'),checks)
             np.savez_compressed(out/(fid+'_probe_raw.npz'),total=total.cpu().numpy(),fg=fg.cpu().numpy(),total_repeat=total_repeat.cpu().numpy(),fg_repeat=fg_repeat.cpu().numpy())
-            assert checks['min_total']>=0 and checks['min_fg']>=0 and checks['min_bg']>=-1e-5
+            point_tol=2*((total-total_repeat).abs()+(fg-fg_repeat).abs())+64*torch.finfo(total.dtype).eps*torch.maximum(total.abs(),fg.abs())+1e-10
+            checks['negative_bg_count']=int((back<0).sum());checks['bg_beyond_repeat_precision_count']=int((back < -point_tol).sum());checks['subset_tolerance_rule']='2x per-point repeat differences plus 64 float32 eps times local max magnitude and 1e-10; signed raw values preserved'
+            save_json(out/(fid+'_contribution_checks.json'),checks)
+            assert checks['min_total']>=0 and checks['min_fg']>=0 and checks['bg_beyond_repeat_precision_count']==0
             assert checks['sum_total_relative_error']<5e-5 and checks['sum_fg_relative_error']<5e-5
             fa=fg.cpu().numpy();ba=back.cpu().numpy();ta=total.cpu().numpy();active=np.flatnonzero((fa!=0)|(ba!=0)).astype(np.int32)
             path=out/(fid+'_contributions.npz');np.savez_compressed(path,row_ids=active,fg=fa[active],bg=ba[active],total_rows=np.int64(len(ta)))
