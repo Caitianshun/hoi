@@ -27,7 +27,9 @@ def run():
     relnames={'dominates':'三项支配参照','dominated':'被参照三项支配','tradeoff':'三项之间存在取舍','equal_at_report_precision':'在报告精度下持平'}
     for b in ['B_U','B_F']:
         r.p(f"相对{b}：全图{relnames[q['relations'][b]['full']['relation']]}，前景{relnames[q['relations'][b]['foreground']['relation']]}。所有配对差均为M1减参照，LPIPS负差代表改善。未把三种不同单位加成总分，也未使用旧背景或几何代理的一票否决。")
-    r.p('本轮要检验的是：将前景平衡RGB监督的直接作用限制到颜色，能否保留其感知收益并减少全图代价。原B-U是全图均匀监督，B-F对所有参数采用前景背景各半，M1仅让规范球谐颜色接收后者；其余条件及原尺度保护相同。')
+    review=read(RUN/'protocol/research_decision_review.json')
+    r.p(review['summary'])
+    r.p('原B-U是全图均匀监督，B-F对所有参数采用前景背景各半，M1仅让规范球谐颜色接收后者；其余条件及原尺度保护相同。')
     r.p(f"诊断实际{cost['D_attempts']}次优化尝试；正式{cost['C_actual_attempts']}次尝试、{cost['C_optimizer_calls']}次Adam调用，额外正式重放{cost['C_replay_attempts']}轮。GPU任务墙钟{cost['GPU_task_hours']:.4f}小时，仅物理GPU1 RTX3090。终态已冻结，未选择中间开发最优。")
     r.p('16帧来自同一已反复使用的开发序列，不是16个独立场景。本轮不自动扩数据或新增网络，也不据图像分数声称真实几何、接触与材料点运动已正确。')
 
@@ -82,7 +84,8 @@ def run():
     visual=read(RUN/'protocol/visual_review.json') if (RUN/'protocol/visual_review.json').exists() else {'findings':['固定图视觉审阅尚未写入，交付前须补齐。']}
     for p in visual['findings']:r.p(p)
     r.p('明确未验证：独立序列泛化、真实材料点对应、几何/运动/接触准确性。V6贡献只是模型行为，不是真实表面对应；M1的N_eff本轮按协议未重复计算。三项图像主指标之间的取舍如实保留。')
-    r.p('阶段决定：'+LABELS[q['decision']]+'。本轮不自动运行独立确认或时序证据模块，不扫描权重来翻转结论。若后续投入，需固定新序列、同协议参照和预算。')
+    r.p(review['mechanism_assessment'])
+    r.p('阶段决定：'+LABELS[q['decision']]+'。默认使用B-U；本轮不自动运行独立确认或时序证据模块，不扫描权重来翻转结论。若后续投入，需固定新序列、同协议参照和预算。')
 
     r.page('真实成本与交付边界')
     tab=[['项目','实际','上限或口径'],['诊断真实尝试及Adam',cost['D_attempts'],'160'],['正式真实尝试',cost['C_actual_attempts'],'14256'],['正式Adam调用',cost['C_optimizer_calls'],'末轮不step'],['正式尾段重放',cost['C_replay_attempts'],'只限一次外部中断'],['附加无优化render backward',f"{cost['diagnostic_renders']}  {cost['diagnostic_backwards']}",'各64'],['GPU任务小时',num(cost['GPU_task_hours'],6),'3'],['终态点数',cost['final_points'],'代价 不是veto'],['峰值allocated GiB',num(cost['peak_allocated_bytes']/2**30),'PyTorch分配器']]
