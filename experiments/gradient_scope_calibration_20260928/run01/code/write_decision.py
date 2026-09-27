@@ -12,7 +12,7 @@ def run():
 - D0 的 284 帧 stem、原图/mask、K/w2c、尺寸、时间核查通过；568 个输入哈希与 V5 冻结索引重新比较。camera_time_audit.json、protocol/input_hash_verification.json。
 - 两冻结模型各两帧的实际训练、原评价、新接口在 RGB/depth/radii 和最终属性上与重复性基准一致。renderer_parity.json。全视频相机来源保留，原 SfM 输入范围未知，不能称无开发信息。
 - C_route 的全部分组导数条目通过，但 uniform_all 有 {len(bad)} 个 grid 参数条目超出本轮预先声明规则；最大绝对差 {maxabs:.12g}，最大相对 L2 差 {maxrel:.12g}。全部有限；A/G/q 的 None 分类及 q 显式返回机制已检查。routing_equivalence.json。
-- 后续交错重复只读检查的模型参数哈希不变，追加比较全部处于原容差内；这是实际差异会随 CUDA 调度变化的证据，但不能选择性删除首次未通过。diagnostics/gradient_localization/localization.json。全部真实梯度留本机并索引，包内有原精度抽样。
+- 后续交错重复只读检查的模型参数哈希不变，追加比较全部处于原容差内；这是实际差异会随 CUDA 调度变化的证据，但不能选择性删除首次未通过。diagnostics/gradient_localization/localization.json。首次超限仅保存逐参数统计，未导出当次完整梯度；后续定位的完整真实梯度留本机并索引，包内有原精度抽样，不能冒充首现场。
 - D1 两冻结终态各八训练帧贡献/时间相机诊断完成。贡献接口绕开 SH，只对预计算颜色求导，几何和遮挡固定，radii/几何不变。独立原始 float32 背景差可能轻微为负；重复反向及精度范围核对后保留有符号值，不截零。contribution_manifest.json。
 
 ## 相容解释与不能下的结论
