@@ -25,14 +25,14 @@ def run():
 
     r.page('输入相机时间与渲染路径')
     r.p(f"完整导出 {len(audit['rows'])} 行实际输入：268训练与16开发。图像、掩码与相机均按源帧 stem 绑定；K/w2c 与发布相机文件逐元素一致，尺寸1277×718、不resize，时间为（源帧号−1）/282。00000为外推，仍保留在16帧主协议。568个输入文件与V5冻结索引重新哈希比较一致。")
-    r.p('时间字段是名义帧号，不是测得的曝光秒数。相机为发布的全视频预处理结果，原始 SfM 输入清单未知；本轮没有重新估计相机，也不把固定相机文件解释为没有开发信息。以下距离除以训练场景尺度 E，角度为相对相机旋转。')
+    r.p('时间为名义帧号，并非曝光秒数。相机沿用发布的全视频预处理结果；原始SfM输入未知，不能声称没有开发信息。表中距离除以训练场景尺度E，角度为相对相机旋转。')
     tab=[['开发帧','左训练帧','右训练帧','左右距离除E','左右旋转度']]
     for x in audit['coverage']:
         a=x['neighbors']['left'];b=x['neighbors']['right']
         tab.append([x['frame_id'],a['frame_id'] if a else '无',b['frame_id'] if b else '无',' / '.join('NA' if v is None else num(v['camera_distance_over_extent'],4) for v in [a,b]),' / '.join('NA' if v is None else num(v['rotation_degrees'],3) for v in [a,b])])
     r.table(tab,[.9,1.1,1.1,1.9,1.99],8.7)
     m=max(v['max_abs'] for row in parity['rows'] for ds in row['comparisons'].values() for v in ds.values())
-    r.p(f"B-U/B-F各用固定00001、00041训练帧检查。同路径重复、训练bound路径、历史评价monkeypatch路径和新最终尺度接口的 RGB/depth/radii 及可比最终属性最大绝对差均为 {m:g}。新接口单独输出原始规范log尺度、形变log尺度和最终有界尺度，不复制全局activation替换到增密。")
+    r.p(f"B-U/B-F固定00001、00041：同路径重复、原训练/评价和新接口的RGB、depth、radii及可比最终属性最大绝对差均为 {m:g}。新接口仅在形变后施加尺度界，不把全局activation替换用于增密。")
     r.p('该核查支持这些已测接口一致，不能证明相机真实准确、遮挡层正确，或覆盖所有renderer配置。完整矩阵、源哈希和邻帧间隔见 camera_time_audit.csv/json。','Caption')
 
     r.page('梯度路由的实现与验证范围')
@@ -86,7 +86,7 @@ def run():
 
     r.page('成本验收和阶段决定')
     r.table([['预算项','实际','上限'],['诊断优化尝试',cost['diagnostic_optimization_attempts'],cost['limits']['D_attempts']],['正式优化尝试',cost['formal_optimization_attempts'],cost['limits']['C_attempts']],['附加诊断渲染',cost['diagnostic_renders'],cost['limits']['diagnostic_renders']],['无优化rasterizer反向',cost['diagnostic_backwards'],cost['limits']['diagnostic_backwards']],['GPU任务秒',num(cost['GPU_task_seconds']),cost['limits']['total_GPU_seconds']]],[3.,1.995,1.995],10)
-    r.p('所有GPU进程均已退出。计时包含加载、错误、重复和序列化，是GPU任务进程墙钟；没有连续PID显存峰值，故该项NA。初次D2结果写JSON时遇到numpy bool_序列化错误，错误和调用成本保留，修复序列化后才生成完整门槛表。没有优化、失败训练恢复或尾段重放。')
+    r.p('本轮GPU任务进程均已退出。计时包含加载、错误、重复和序列化，是GPU任务进程墙钟；没有连续PID显存峰值，故该项NA。初次D2结果写JSON时遇到numpy bool_序列化错误，错误和调用成本保留，修复序列化后才生成完整门槛表。没有优化、失败训练恢复或尾段重放。')
     r.p('正式C未启动，完整268训练、16开发和排除00000的15帧补充均没有C新分数。逐帧机器表保留B-U/B-F旧值及C的全部NA行，配对C−B-U、C−B-F均留空并写明原因；没有用早期状态或旧终态补缺。')
     r.p('阶段决定是技术前置验证关闭，科学问题仍未回答。不能套用附件中“相对B-F恢复背景”“开发仍碎片化”或“C更差”等需要C终态的分支。若继续，首先需要事前固定、能覆盖后端非确定性的等价验收方案，再做原定Adam/密度/恢复/128轮检查；本轮不自动换阈值或反复重试到过关。')
     r.p('旧V5关于50/50监督不升级的结论不变。不新增权重/属性组合、注意力、接触、新数据或骨干。新的独立对应证据仍是未来结构问题的前提，不能用本次贡献图替代。最迟10月1日路线决定，10月7日主问题收敛；11月4日核心结果冻结，11月5—15日完整写作。')
