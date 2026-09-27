@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "seed": 12345,
+  "physical_GPU": 1,
+  "budgets": {
+    "D_attempts": 160,
+    "C_attempts": 14000,
+    "D_GPU_seconds": 1800,
+    "total_GPU_seconds": 10800,
+    "diagnostic_renders": 256,
+    "diagnostic_backwards": 160
+  },
+  "formal_policy": "C_route",
+  "diagnostic_regression": {
+    "parent": "B_U fine1000",
+    "rounds": 128
+  },
+  "fine_iterations": 14000,
+  "quality": {
+    "FG_PSNR_mean_min": 1.0,
+    "FG_PSNR_median_strict_min": 0.0,
+    "FG_LPIPS_mean_max": -0.05,
+    "BG_PSNR_mean_min": -0.3
+  },
+  "inputs": "V5 same 268 train plus 16 dev Backpack",
+  "no_automatic_expansion": true
+}

@@ -16,6 +16,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SOURCE_ROOTS = ("scripts", "experiments", "research", "patches")
 ROOT_FILES = ("README.md", "AGENTS.md", ".gitignore", ".vscode/settings.json")
 EXTRA_CONFIG_FILES = (
+    "experiments/gradient_scope_calibration_20260928/run01/configs/v6.json",
     "experiments/numerical_stability_calibration_20260927/run01/configs/v5.json",
     "experiments/foreground_stage_calibration_20260927/run01/configs/v4.json",
     "experiments/gvhmr_validation_20260923/reference_evaluation_protocol.json",
@@ -66,6 +67,8 @@ def allowed(path: Path) -> bool:
     name = relative.as_posix()
     if name in ROOT_FILES or name in EXTRA_CONFIG_FILES:
         return True
+    if name.startswith("experiments/gradient_scope_calibration_20260928/run01/"):
+        return relative.parent.as_posix() == "experiments/gradient_scope_calibration_20260928/run01/code" and path.suffix in SOURCE_EXTENSIONS
     if name.startswith("experiments/numerical_stability_calibration_20260927/run01/"):
         # Diagnostic runtime snapshots and protocol/result JSON stay private.
         return relative.parent.as_posix() == "experiments/numerical_stability_calibration_20260927/run01/code" and path.suffix in SOURCE_EXTENSIONS

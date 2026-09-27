@@ -231,3 +231,8 @@ V3完整系统与数据协议校准的三次正式训练、全部渲染评价和
 ## 2026-09-27 V5 收口后的执行边界
 
 V5入口封存；实际终态、质量决定、成本、故障和文档验收只读取私有 `experiments/numerical_stability_calibration_20260927/run01/completion.json`、`NEXT_DECISION.md`、`ROOT_CAUSE.md` 与最新 `RESEARCH_LOG.md`，不从公开入口复制实测数值。按本轮授权交付后暂停v5跟进并保留全部历史，不自动从剩余预算追加优化、第三臂、权重扫描、BEHAVE重跑、Tennis看图/训练或新方法。下一方向须有单一可证伪问题、受控协议和明确预算，不把本轮建议作为执行授权。历史同步例外见私有 `protocol/public_sync_boundary_review.json`，不擅自重写Git历史。11月4日冻结与11月5—15日完整写作窗口保持。
+
+
+## 2026-09-27 V6 新授权 梯度作用范围校准
+
+用户要求执行V6，私有只读来源为 `experiments/gradient_scope_calibration_20260928/run01/protocol/user_guidance_source.md`。历史V5封存。先D0输入和renderer一致性、D1有限贡献及时间相机诊断、D2精确梯度/密度/恢复验证，通过后仅从原shared fine0执行唯一C-route至fine14000。SH接受原balanced；几何/opacity/形变/grid接受uniform及原正则；增密只用显式返回uniform屏幕梯度。限160诊断尝试、14000正式尝试、256附加render、160无优化backward，诊断1800秒与全轮10800 GPU任务秒，仅物理GPU1。D0或D2必要门槛不通过则不启动C；D1可按附件标NA。失败不重开，不扫权重/属性、不扩数据。正式终态一次评价及内嵌图DOCX/最小ZIP，实际进展、成本与决定读取私有状态，公开源不硬编码结果。11月4冻结与11月5—15写作不变。
