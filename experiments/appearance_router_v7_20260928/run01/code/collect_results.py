@@ -10,6 +10,8 @@ def csvwrite(path,data):
 def run():
     start=time.monotonic();freeze=read(RUN/'protocol/finals.json');summary=read(RUN/'evaluation_summary.json')
     for x in freeze['assets']:assert sha(x['path'])==x['sha256']
+    frozen=read(RUN/'protocol/engineering_protocol_frozen.json')
+    for x in frozen['frozen_sources']:assert sha(x['path'])==x['sha256'],x['path']
     frames={}
     for split,name in [('train','manifest.json'),('retained','evaluation_manifest.json')]:
         frames.update({(split,x['frame_id']):x for x in read(OLD/'inputs/hos_backpack'/name)['frames']})
