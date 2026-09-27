@@ -5,7 +5,7 @@ class CallBudget:
     def __init__(self,label):
         import diff_gaussian_rasterization as backend
         self.label=label;self.mode='diagnostic';self.path=RUN/'protocol/kernel_calls.jsonl'
-        self.used={'render':0,'backward':0};self.limits={'render':256,'backward':160}
+        self.used={'render':0,'backward':0};cfg=read(RUN/'configs/v7.json')['budgets'];self.limits={'render':cfg['diagnostic_renders'],'backward':cfg['diagnostic_backwards']}
         if self.path.exists():
             for s in self.path.read_text().splitlines():
                 x=json.loads(s)

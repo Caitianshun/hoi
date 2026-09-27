@@ -5,7 +5,8 @@ RUN=Path(__file__).resolve().parents[1];ROOT=RUN.parents[2]
 def run(a):
     jobs=RUN/'protocol/gpu_jobs.jsonl';prior=[json.loads(s) for s in jobs.read_text().splitlines()] if jobs.exists() else []
     total=sum(x['wall_seconds'] for x in prior);used=sum(x['wall_seconds'] for x in prior if x['category']=='D')
-    remaining=min(10800-total,1800-used) if a.category=='D' else 10800-total
+    cfg=json.loads((RUN/'configs/v7.json').read_text())['budgets']
+    remaining=min(cfg['total_GPU_seconds']-total,cfg['D_GPU_seconds']-used) if a.category=='D' else cfg['total_GPU_seconds']-total
     assert remaining>0
     out=RUN/'logs'/a.label;out.mkdir(parents=True,exist_ok=False)
     command=[str(ROOT/'envs/4dgs/bin/python'),*a.command]
