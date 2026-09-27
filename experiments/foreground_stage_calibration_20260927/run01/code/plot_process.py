@@ -5,12 +5,15 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 def run():
     fig,ax=plt.subplots(1,3,figsize=(14,3.5),layout='constrained')
+    records=[json.loads(s) for s in (RUN/'training_metrics.jsonl').read_text().splitlines()]
     for branch,color in [('W_fine','#377eb8'),('W_all','#d95f02')]:
-        data=[json.loads(s) for s in (RUN/'runs'/branch/'training_metrics.jsonl').read_text().splitlines()]
-        for stage,ls in [('coarse','--'),('fine','-')]:
-            a=[r for r in data if r['stage']==stage];x=[r['iteration'] for r in a]
+        data=[r for r in records if r['run']==branch]
+        groups=list(dict.fromkeys((r['stage'],r['execution_episode']) for r in data))
+        for stage,episode in groups:
+            ls=':' if episode!='initial' else ('--' if stage=='coarse' else '-')
+            a=[r for r in data if r['stage']==stage and r['execution_episode']==episode];x=[r['iteration'] for r in a]
             if not a:continue
-            ax[0].plot(x,[r['L_rgb'] for r in a],ls,label=branch+' '+stage,color=color)
+            ax[0].plot(x,[r['L_rgb'] for r in a],ls,label=branch+' '+stage+(' resumed' if episode!='initial' else ''),color=color)
             ax[1].plot(x,[r['L_fg'] for r in a],ls,label=branch+' FG '+stage,color=color)
             ax[1].plot(x,[r['L_bg'] for r in a],ls,alpha=.45,color=color)
             ax[2].plot(x,[r['points'] for r in a],ls,label=branch+' '+stage,color=color)
@@ -25,5 +28,5 @@ def run():
     ax.set_xticks(range(len(groups)),[x.replace('_','\n') for x in groups],fontsize=8);ax.set_yticks(range(len(keys)),[' '.join(map(str,k)) for k in keys],fontsize=9)
     for i in range(len(keys)):
         for j in range(len(groups)):ax.text(j,i,'NA' if not np.isfinite(mat[i,j]) else f'{mat[i,j]:.2f}',ha='center',va='center',fontsize=8)
-    fig.colorbar(im,ax=ax,label='Median FG/BG cosine over four fixed train frames');fig.savefig(RUN/'diagnostics/probe_summary.jpg',dpi=160);plt.close(fig)
+    fig.colorbar(im,ax=ax,label='Median FG/BG cosine');fig.savefig(RUN/'diagnostics/probe_summary.jpg',dpi=160,bbox_inches='tight');plt.close(fig)
 if __name__=='__main__':run()

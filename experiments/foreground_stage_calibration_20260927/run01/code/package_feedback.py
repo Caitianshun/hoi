@@ -8,11 +8,12 @@ def sha(p):
         while data:=f.read(1<<20):h.update(data)
     return h.hexdigest()
 def run():
-    required=['run_manifest.json','metrics_per_frame.csv','paired_differences.csv','training_metrics.jsonl','density_events.jsonl','state_probes.jsonl','initialization_support.json','appearance_diagnostics.csv','figure_manifest.json','costs.json','MISSING_ASSETS.md','NEXT_DECISION.md','REPRODUCE.md']
+    required=['run_manifest.json','metrics_per_frame.csv','paired_differences.csv','training_metrics.jsonl','density_events.jsonl','state_probes.jsonl','initialization_support.json','appearance_diagnostics.csv','figure_manifest.json','costs.json','MISSING_ASSETS.md','NEXT_DECISION.md','REPRODUCE.md','report_content.json','PROTOCOL.md','model_index.json']
     selected={RUN/f for f in required};assert all(p.exists() for p in selected)
     for pattern in ['code/*.py','configs/*.json','protocol/*.json','protocol/*.jsonl','protocol/user_guidance_source.md','evaluation/summary.json','evaluation/figures/*.jpg','diagnostics/appearance/summary.json','diagnostics/appearance/manifest.json','diagnostics/appearance/figures/*.jpg','diagnostics/input_support/*.jpg','diagnostics/input_support/*.png','diagnostics/state_probes/manifest.json','diagnostics/state_probes/*/*/*.jpg','diagnostics/*summary.jpg','feedback_arrays/*.json','feedback_arrays/*.npz','runs/*/effective_config.json','runs/*/failure.json','runs/*/branch_validation.json','runs/*/fine_transition.json','runs/*/upstream_adaptation.json','runs/*/run.json','runs/*/verified_restore.json','runs/*/resume_check.json','protocol/failed_attempts/*/*.json','protocol/failed_attempts/*/*.jsonl','logs/*/attempt.json']:
         selected.update(RUN.glob(pattern))
-    selected={p for p in selected if p.is_file() and not p.name.startswith('package_')}
+    selected.update(RUN.glob('protocol/failed_attempts/*/observer_source.py'))
+    selected={p for p in selected if p.is_file() and p.name!='package_verification.json'}
     content=[]
     for p in sorted(selected):
         assert p.suffix not in ['.pt','.pth','.so'];content.append(dict(name=str(p.relative_to(RUN)),sha256=sha(p),bytes=p.stat().st_size))

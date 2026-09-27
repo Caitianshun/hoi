@@ -1,5 +1,5 @@
 """Portable V4 report, authored with bundled python-docx from private results."""
-import json,csv,math,hashlib,importlib.util,zipfile
+import json,csv,math,hashlib,importlib.util,zipfile,statistics
 from pathlib import Path
 from PIL import Image,ImageDraw,ImageFont
 from docx.shared import Inches,Pt
@@ -45,10 +45,10 @@ def run():
     content=read(RUN/'report_content.json');cost=read(RUN/'costs.json');ev=read(RUN/'evaluation/summary.json');app=read(RUN/'diagnostics/appearance/summary.json');support=read(RUN/'initialization_support.json');figs=read(RUN/'figure_manifest.json');verify=read(RUN/'protocol/verification.json');decision=read(RUN/'protocol/final_decision.json');ex=read(RUN/'protocol/fixed_examples.json')
     r=Report(content,cost);r.p('前景训练阶段与保留视角颜色诊断','Title');r.p('V4  执行结果与后续研究决定','Subtitle')
     for p in content['summary']:r.p(p)
-    table=[['分支','实际状态','名义轮数','参数更新','新终态']]
+    table=[['分支','实际状态','路径名义轮','路径更新','新终态']]
     for a in cost['formal_attempts']:table.append([a['run'],a['status'],a.get('nominal_iterations',a.get('attempted_iterations')),a['optimizer_updates'],'有' if a.get('checkpoint') else '无'])
     r.table(table,[1.1,2.09,1.1,1.2,1.5],10)
-    r.p('原 H1 为全图 L1 的固定基线。W_fine 复用 H1 coarse 末状态，仅动态 fine 阶段调整监督；W_all 从相同未训练点云开始，两个阶段均调整监督。失败分支的空值表示没有可比较的终态，不表示零分。')
+    r.p('表中路径计数不含作废与重复轮数；全部实际尝试见第5页。原 H1 为全图 L1 基线，W_fine 仅调整 fine 阶段，W_all 调整两个阶段。空值表示没有可比较的终态，不表示零分。')
     for p in content['decision_summary']:r.p(p)
     r.p('证据入口：本报告的绝对分数、配对差和成本读取 evaluation/summary.json、costs.json；逐帧原值、完整数组身份与失败记录见反馈包。','Caption')
 
@@ -58,7 +58,7 @@ def run():
     r.p('这会提高每个前景像素的影响，同时经投影与渲染梯度影响增密和剪枝；相同密度规则不保证相同点拓扑。本轮测量的是监督分配及其诱导优化的总效应，不能把差异全部解释为某一种重影或某个独立模块。SSIM 和 LPIPS 不参与训练，原有三项 fine 正则保持。')
     r.p('W_fine 分叉加载 coarse 模型和 RNG，再按官方入口重置 fine Adam、梯度累计和采样栈，保留 max_radii2D。首批训练 ID 和纯全图 L1 加正则的无更新探针保存在 branch_validation.json；旧日志缺批次 ID，且 l1 别名包含正则，因此历史首步总损失无法直接配对。')
     r.p('新增训练 mask 只用于本轮训练误差权重，没有修改标签、初值或相机。人体与静放背包并非始终属于同一个前景区域；本轮没有独立人体和背包指标，也不以图像分数证明接触、材料点或三维几何正确。')
-    r.table([['预算项','实际','上限'],['正式尝试',cost['formal_attempt_count'],cost['limits']['formal_attempts']],['名义优化轮',cost['formal_nominal_attempts'],cost['limits']['nominal_steps']],['临时优化轮',cost['temporary_nominal_steps'],cost['limits']['temporary_steps']],['GPU 任务小时',num(cost['gpu_task_hours']),num(cost['limits']['GPU_seconds']/3600)]],[2.79,2.1,2.1],10)
+    r.table([['预算项','实际','上限'],['预定正式分支',cost['formal_attempt_count'],cost['limits']['formal_attempts']],['名义优化轮',cost['formal_nominal_attempts'],cost['limits']['nominal_steps']],['临时优化轮',cost['temporary_nominal_steps'],cost['limits']['temporary_steps']],['GPU 任务小时',num(cost['gpu_task_hours']),num(cost['limits']['GPU_seconds']/3600)]],[2.79,2.1,2.1],10)
     r.p('所有 GPU 任务绑定物理 GPU1 RTX 3090。GPU 时间是串行任务进程墙钟，包含加载、导出及失败；不是 CUDA 核计时。历史 H1 coarse 和其他 V3 成本单列，不冒记为零。')
 
     r.page('输入掩码与初始表面支持')
@@ -76,7 +76,7 @@ def run():
     r.page('训练过程与失败证据')
     for p in content['training']:r.p(p)
     path=RUN/'diagnostics/training_summary.jpg'
-    if path.exists():r.image(path,'每 100 轮记录的真实损失与点数。采样批次随迭代改变，曲线用于过程诊断，不能当作固定验证集性能。失败前未记录的逐步损失不插值。',max_height=4.2)
+    if path.exists():r.image(path,'每 100 轮记录的真实损失与点数，重叠恢复段另线绘制。批次随迭代改变，不能当作固定验证集性能。作废恢复隔离在失败记录中；未记录的逐步损失不插值。',max_height=4.2)
     r.p('W_all 使用附加的只读观察入口保存滚动检查点和非有限状态；冻结的训练函数、区域损失、学习率、随机采样、增密与优化器规则均未改。该修复保证后续异常可追踪，但不能补回已经退出的 W_fine 状态。')
 
     r.page('Backpack 全部帧的数值评价')
@@ -97,10 +97,10 @@ def run():
     for p in content['probes']:r.p(p)
     pm=read(RUN/'diagnostics/state_probes/manifest.json');tab=[['快照','点数','opacity 中位','最大轴尺度 p95','位移 p95 中位']]
     for s in pm['snapshots']:
-        vals=sorted(x['world_displacement']['p95'] for x in s['deformation']);mid=vals[len(vals)//2] if vals else None
+        vals=[x['world_displacement']['p95'] for x in s['deformation']];mid=statistics.median(vals) if vals else None
         tab.append([s['branch']+' '+s['stage']+' '+str(s['iteration']),s['attributes']['points'],num(s['attributes']['opacity']['p50']),num(s['attributes']['scale_max_axis']['p95']),num(mid)])
     r.table(tab,[2.69,1.0,1.1,1.1,1.1],8.6)
-    r.p('四个训练探针帧固定为 '+', '.join(pm['probe_frame_ids'])+'。每个参数组分别报告 FG/BG 梯度 L2、RMS、加权范数和夹角；不同组单位不同，不能跨组按范数排名。共同 coarse 起点只计算一次；失败前未保存的快照标 NA。')
+    r.p('四个训练探针帧固定为 '+', '.join(pm['probe_frame_ids'])+'。尺度和位移采用继承的 HOS 世界坐标单位，未核实其米制尺度。各参数组分别报告 FG/BG 梯度范数与夹角，不能跨组按范数排名。共同 coarse 起点只计算一次；未保存的快照标 NA。')
     path=RUN/'diagnostics/probe_summary.jpg'
     if path.exists():r.image(path,'固定四帧中，同一参数组的 FG 与 BG 梯度方向。未连接、零范数或非有限情况标 NA，不能由四帧梯度推导完整训练的因果机制。',max_height=3.8)
 
