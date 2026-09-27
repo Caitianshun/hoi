@@ -240,3 +240,7 @@ V5入口封存；实际终态、质量决定、成本、故障和文档验收只
 ## 2026-09-27 V6 收口后的执行边界
 
 V6当前执行入口关闭；实际门槛、失败定位、未执行项、成本及交付身份读取私有 `experiments/gradient_scope_calibration_20260928/run01/completion.json`、`NEXT_DECISION.md`、`CAUSE_ASSESSMENT.md` 和最新 `RESEARCH_LOG.md`。保留首次检查与后续定位的区别，不以有利重复覆盖失败、不事后扩大验收容差，也不把未启动训练记为方法质量失败。剩余预算不自动转作重复验证、正式训练或新模块；继续工作须有明确的新验收协议与预算。公开源仅保存实现和源配置，实测结果和附件保持私有。11月4日冻结与11月5—15日完整写作窗口保持。
+
+## 2026-09-27 V7 新授权 外观梯度路由模块
+
+用户最新附件明确替代V6下一步与质量门槛；只读来源为 `experiments/appearance_router_v7_20260928/run01/protocol/user_guidance_source.md`。复用旧D0/D1，封装独立AttributeGradientRouter，先按engineering_equivalence_v2固定1e−3张量相对容限完成一次集成验收、128轮主回归与24轮自身恢复。诊断优化含所有副本Adam最多160、无优化render/backward各64、诊断900GPU任务秒。通过或accepted_numerical_variation后直接从原shared fine0执行唯一appearance_only至fine14000；正式实际尝试最多14256，只允许一次外部中断的最多256尾段重放，总10800GPU任务秒，仅物理GPU1。保持原density-before-Adam与末轮不step。全图与FG的PSNR/SSIM/LPIPS优先，完整向量与两参照判断，取消旧质量和辅助代理veto；不扫权重、不扩数据、不加新模块。保留旧失败，不用旧微小CUDA包络阻塞新验收。实际执行和结果见私有run状态、completion及研究日志，代码/源配置依白名单同步。11月4冻结与11月5—15写作窗口不变。

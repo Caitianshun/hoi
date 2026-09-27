@@ -1,0 +1,73 @@
+{
+  "protocol": "V7",
+  "engineering_protocol": "engineering_equivalence_v2",
+  "module": "AttributeGradientRouter",
+  "mode": "appearance_only",
+  "seed": 12345,
+  "batch_size": 2,
+  "scale_bound": 10.44549205780029,
+  "physical_GPU": 1,
+  "expected_GPU": "NVIDIA GeForce RTX 3090",
+  "numerical": {
+    "rel_l2": 0.001,
+    "norm_max": 0.001,
+    "zero_reference": "exact_zero_or_targeted_source_update_check",
+    "collection": [
+      "off",
+      "uniform_routed",
+      "off",
+      "uniform_routed",
+      "off",
+      "uniform_routed"
+    ]
+  },
+  "budgets": {
+    "D_attempts": 160,
+    "C_attempts": 14256,
+    "D_GPU_seconds": 900,
+    "total_GPU_seconds": 10800,
+    "diagnostic_renders": 64,
+    "diagnostic_backwards": 64,
+    "max_formal_external_resumes": 1,
+    "max_replay": 256
+  },
+  "schedule": {
+    "formal_end": 14000,
+    "last_formal_step_has_no_Adam": true,
+    "diagnostic_start": 1000,
+    "diagnostic_end": 1128,
+    "diagnostic_save": 1104,
+    "density_before_Adam": true
+  },
+  "quality": {
+    "primary": "dev_full",
+    "regions": [
+      "full",
+      "foreground",
+      "background"
+    ],
+    "metrics": [
+      "psnr_db",
+      "ssim",
+      "lpips_spatial_mean"
+    ],
+    "higher_better": [
+      true,
+      true,
+      false
+    ],
+    "comparison_direction": "M1 minus baseline",
+    "tie_precision": {
+      "psnr_db": 1e-06,
+      "ssim": 1e-06,
+      "lpips_spatial_mean": 1e-06
+    },
+    "decision": "three-dimensional dominance and tradeoff against B_U and B_F; no old scalar veto"
+  },
+  "parent_hashes": {
+    "shared_fine0": "ef207932701978cb0f09925ad085378b195e0a514138923567bf717f2d28653d",
+    "B_U_fine1000": "467d0c8481b2cdc7ecae5402d1f8910f3c5fb279fa7444a154b21b35c9d26c38",
+    "B_U_terminal": "1e120cfcb332faadd4e17871e4679e0c7a0c7a6dec0ea6a3892d363b5b6170b6",
+    "B_F_terminal": "d9ec9dce43a38871fe63abb132a2093b8d9ff64bc50b26e7f5c669e6202d6cff"
+  }
+}
