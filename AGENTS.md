@@ -236,3 +236,7 @@ V5入口封存；实际终态、质量决定、成本、故障和文档验收只
 ## 2026-09-27 V6 新授权 梯度作用范围校准
 
 用户要求执行V6，私有只读来源为 `experiments/gradient_scope_calibration_20260928/run01/protocol/user_guidance_source.md`。历史V5封存。先D0输入和renderer一致性、D1有限贡献及时间相机诊断、D2精确梯度/密度/恢复验证，通过后仅从原shared fine0执行唯一C-route至fine14000。SH接受原balanced；几何/opacity/形变/grid接受uniform及原正则；增密只用显式返回uniform屏幕梯度。限160诊断尝试、14000正式尝试、256附加render、160无优化backward，诊断1800秒与全轮10800 GPU任务秒，仅物理GPU1。D0或D2必要门槛不通过则不启动C；D1可按附件标NA。失败不重开，不扫权重/属性、不扩数据。正式终态一次评价及内嵌图DOCX/最小ZIP，实际进展、成本与决定读取私有状态，公开源不硬编码结果。11月4冻结与11月5—15写作不变。
+
+## 2026-09-27 V6 收口后的执行边界
+
+V6当前执行入口关闭；实际门槛、失败定位、未执行项、成本及交付身份读取私有 `experiments/gradient_scope_calibration_20260928/run01/completion.json`、`NEXT_DECISION.md`、`CAUSE_ASSESSMENT.md` 和最新 `RESEARCH_LOG.md`。保留首次检查与后续定位的区别，不以有利重复覆盖失败、不事后扩大验收容差，也不把未启动训练记为方法质量失败。剩余预算不自动转作重复验证、正式训练或新模块；继续工作须有明确的新验收协议与预算。公开源仅保存实现和源配置，实测结果和附件保持私有。11月4日冻结与11月5—15日完整写作窗口保持。
