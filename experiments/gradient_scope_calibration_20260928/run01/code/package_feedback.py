@@ -36,11 +36,21 @@ def run():
     patch+='\n# Gradient router is an added independent source file; see code/gradient_router.py.\n'
     (RUN/'patch.diff').write_text(patch)
     save(RUN/'protocol/source_manifest.json',dict(files=[identity(p) for p in sorted((RUN/'code').glob('*.py'))],configuration=identity(RUN/'configs/v6.json'),scope='Self-authored source; scientific outputs remain private'))
+    from PIL import Image
+    display_copies=[]
+    for arm in ['B_U_verified','B_F']:
+        for original in sorted((RUN/'diagnostics'/arm).glob('*_time_camera.png')):
+            copy=RUN/'feedback_figures'/arm/(original.stem+'.jpg');copy.parent.mkdir(parents=True,exist_ok=True)
+            with Image.open(original) as im:
+                size=im.size;im.convert('RGB').save(copy,quality=88,subsampling=2,optimize=True)
+            display_copies.append(dict(source=identity(original),feedback=identity(copy),feedback_relative_path=str(copy.relative_to(RUN)),dimensions=size))
+    save(RUN/'protocol/feedback_display_copies.json',dict(scope='Display-only JPEG encoding of all fixed time-camera panels; no resizing. Original PNG retained on host, DOCX unchanged, numeric arrays lossless.',quality=88,subsampling=2,files=display_copies))
     required=['route_protocol.json','camera_time_audit.csv','camera_time_audit.json','renderer_parity.json','gradient_partition.json','routing_equivalence.json','gradient_audit.csv','contribution_manifest.json','time_camera_probe.json','bound_events_compact.csv','metrics_per_frame.csv','paired_differences.csv','run.json','costs.json','sampling_comparison.json','CAUSE_ASSESSMENT.md','NEXT_DECISION.md','state_manifest.json','environment.json','patch.diff','REPRODUCE.md','MISSING_ASSETS.md','figure_manifest.json','evaluation_summary.json']
     selected={RUN/p for p in required}
     for pattern in ['code/*.py','configs/*.json','protocol/*.json','protocol/*.jsonl','protocol/user_guidance_source.md','logs/*/*.json','logs/*/console.log','diagnostics/*/*.json','diagnostics/B_U_verified/*_contributions.npz','diagnostics/B_F/*_contributions.npz','diagnostics/B_U_verified/*_fixed_rows.npz','diagnostics/B_F/*_fixed_rows.npz','diagnostics/B_U_verified/*_time_camera.png','diagnostics/B_F/*_time_camera.png','diagnostics/gradient_localization/*samples.npz','inherited_figures/*.jpg','feedback_arrays/*.npz','feedback_arrays/*.json','output/report_figures/routing_gate.png','output/report_figures/contribution_summary.png']:
         selected.update(RUN.glob(pattern))
-    selected={p for p in selected if p.is_file() and 'source_snapshots' not in p.parts and p.name not in ['package_verification.json','final_sync.json']}
+    selected={p for p in selected if p.is_file() and 'source_snapshots' not in p.parts and not p.name.endswith('_time_camera.png') and p.name not in ['package_verification.json','final_sync.json']}
+    selected.update(RUN/x['feedback_relative_path'] for x in display_copies)
     assert all('source_snapshots' not in p.parts and p.suffix not in ['.pt','.pth','.so','.docx'] for p in selected)
     content=[dict(name=str(p.relative_to(RUN)),bytes=p.stat().st_size,sha256=sha(p)) for p in sorted(selected)]
     output=RUN/'output/V6_feedback.zip'
