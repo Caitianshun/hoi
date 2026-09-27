@@ -3,7 +3,10 @@ from common import *
 from render_utils import diagnostic_renderer,load_model,CalibratedCamera
 from train_official import rng_capture
 import os,time,torch,numpy as np,cv2,pickle
-def rng_digest():return hashlib.sha256(pickle.dumps(rng_capture())).hexdigest()
+def rng_digest():
+    s=rng_capture();h=hashlib.sha256(pickle.dumps((s['python'],s['numpy'])))
+    for t in [s['torch'],*s['cuda']]:h.update(t.cpu().numpy().tobytes())
+    return h.hexdigest()
 def gradient_stats(a,b,params):
     def calc(gs):
         valid=[g for g in gs if g is not None]
@@ -61,9 +64,8 @@ def run():
                     dest=out/branch/f'{stage}_{iteration:06d}'/(fid+'.npz');dest.parent.mkdir(parents=True,exist_ok=True);np.savez_compressed(dest,rgb=rgb)
                     jpg=dest.with_suffix('.jpg');cv2.imwrite(str(jpg),cv2.cvtColor(np.rint(np.clip(rgb,0,1)*255).astype(np.uint8),cv2.COLOR_RGB2BGR),[cv2.IMWRITE_JPEG_QUALITY,92]);previews.append(dict(frame_id=fid,raw=identity(dest),image=identity(jpg)))
                 assert all(p.grad is None for p in params),'autograd.grad must not accumulate formal optimizer buffers'
-            # Capture RNG tensor bytes explicitly: pickle storage IDs are unstable.
-            after=identity(checkpoint);assert before==after
-            summary.append(dict(branch=branch,stage=stage,iteration=iteration,checkpoint=before,attributes=attrs,deformation=displacements,previews=previews,checkpoint_unchanged=True,optimizer_steps=0))
+            after=identity(checkpoint);assert before==after;assert initial_rng==rng_digest(),'Probe consumed RNG'
+            summary.append(dict(branch=branch,stage=stage,iteration=iteration,checkpoint=before,attributes=attrs,deformation=displacements,previews=previews,checkpoint_unchanged=True,RNG_unchanged=True,optimizer_steps=0))
             print(branch,stage,iteration,'probed',flush=True);del model,params,groups;torch.cuda.empty_cache()
     save_json(out/'manifest.json',dict(status='completed',snapshots=summary,probe_frame_ids=sorted(probe_ids,key=int),training_preview_frame_ids=preview_ids,rows=len(snapshots)*len(probe_ids),W_fine_coarse='Shared H1 coarse snapshot analyzed once',seconds=time.monotonic()-started,optimization_steps=0,formal_sampler_untouched=True))
 if __name__=='__main__':run()
