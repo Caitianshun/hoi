@@ -221,3 +221,8 @@ V3完整系统与数据协议校准的三次正式训练、全部渲染评价和
 ## 2026-09-26 V4 已以训练失败收口
 
 本轮两条前景阶段分支均无完整终态：W_fine fine675非有限且无自身检查点；W_all初始fine1167 CUDA故障，严格同状态恢复后fine2104非有限。fine2100有限完整状态保留；不再自动训练或从coarse重开。第一次恢复因stage文件名接口失误产生388无效尝试轮，已隔离并显著披露，更新387–388和全部成本计入。两预定分支共4进程尝试、6334轮、6330–6331实际更新，20临时步、0.179408 GPU小时。新终态指标和晋级门槛全部NA，不称质量未达标。BEHAVE冻结颜色/alpha、来源支持与5快照×4帧探针完成；Tennis只查目录，不看图不训练。正式24页内嵌图DOCX与≤25MB反馈ZIP、NEXT_DECISION/REPRODUCE位于 `experiments/foreground_stage_calibration_20260927/run01`，完整性和交付身份见completion.json。唯一后续提案为另定小预算定位首个非有限算子，不把剩余预算当自动续跑授权；保留全部失败。V4小时跟进交付后暂停。11月4冻结与11月5—15写作窗口不变。
+
+
+## 2026-09-26 V5 新授权 数值定位与条件 fine 配对
+
+最新只读附件入口为 `experiments/numerical_stability_calibration_20260927/run01/protocol/user_guidance_source.md`。先按A有限状态恢复/边界诊断/单项稳定措施回归，全部第8节门槛成立后直接执行B-U uniform_fine与B-F balanced_fine，同原H1 coarse3000及官方fine重置，只改fine RGB监督。上限A512尝试、64无优化探针、1800 GPU任务秒；B两臂合计28000尝试，总10800 GPU任务秒，仅物理GPU1。新数值失败保存后关闭该臂，不新增尝试、不扫参；外部技术中断只从自身完整Adam/RNG/剩余栈续跑并累计预算。实际状态与结论读取私有pipeline.json、continuation.json、ROOT_CAUSE.md、formal_gate与最新RESEARCH_LOG，不把此入口当完成证明。两臂关闭后直接冻结/评价，小时跟进只兜底；DOCX逐页验收与最小ZIP交付后暂停V5跟进。BEHAVE不重跑，Tennis不看图，不自动新方法。AGENTS后续只记录范围和私有入口，实测结果不得硬编码进公开报告源码；历史同步例外保存在私有审计且不擅自重写Git历史。11月4冻结与11月5—15写作窗口保持。
