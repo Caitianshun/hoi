@@ -11,7 +11,7 @@ def run():
     checked=[]
     for a in frozen['assets']+frozen['training_sources']+final['assets']:
         assert sha(a['path'])==a['sha256'],a['path'];checked.append(a)
-    assert sha(RUN/'code/train_stage_audited.py')==read(RUN/'protocol/failure_resolution.json')['observer']['sha256']
+    assert sha(RUN/'code/train_stage_audited.py')==read(RUN/'protocol/corrected_recovery_audit.json')['observer_sha256']
     ex=read(RUN/'protocol/fixed_examples.json');summary=read(RUN/'evaluation/summary.json')
     metrics=rows(RUN/'metrics_per_frame.csv');paired=rows(RUN/'paired_differences.csv');app=rows(RUN/'appearance_diagnostics.csv')
     mindex={(x['run'],x['split'],x['frame_id'],x['region']):x for x in metrics}
@@ -56,11 +56,13 @@ def run():
         rd=RUN/'runs'/branch;result=read(rd/('run.json' if (rd/'run.json').exists() else 'failure.json'))
         discarded=0
         if branch=='W_all' and (RUN/'protocol/failed_attempts/W_all_initial/failure.json').exists():
-            prior=read(RUN/'protocol/failed_attempts/W_all_initial/failure.json');audit=read(RUN/'protocol/W_all_recovery_audit.json');discarded=prior['optimizer_updates']-audit['checkpoint_optimizer_updates']
-        attempts.append(dict(run=branch,**result,actual_executed_optimizer_updates=result['optimizer_updates']+discarded,discarded_updates_before_recovery=discarded,terminal_model_bytes=Path(result['checkpoint']).stat().st_size if result.get('checkpoint') else None))
+            prior=read(RUN/'protocol/failed_attempts/W_all_initial/failure.json');audit=read(RUN/'protocol/corrected_recovery_audit.json');discarded=prior['optimizer_updates']-audit['checkpoint_optimizer_updates']
+        incident=read(RUN/'protocol/recovery_interface_incident.json') if branch=='W_all' else {}
+        lower=result['optimizer_updates']+discarded+incident.get('invalid_optimizer_updates_lower_bound',0);upper=result['optimizer_updates']+discarded+incident.get('invalid_optimizer_updates_upper_bound',0)
+        attempts.append(dict(run=branch,**result,actual_executed_optimizer_updates_lower=lower,actual_executed_optimizer_updates_upper=upper,discarded_updates_before_recovery=discarded,invalid_recovery_update_interval=[incident.get('invalid_optimizer_updates_lower_bound',0),incident.get('invalid_optimizer_updates_upper_bound',0)],terminal_model_bytes=Path(result['checkpoint']).stat().st_size if result.get('checkpoint') else None))
     nominal=len((RUN/'protocol/formal_steps.jsonl').read_text().splitlines());temp=len((RUN/'protocol/temporary_steps.jsonl').read_text().splitlines());gpu_seconds=sum(r['wall_seconds'] for r in ledger)
     assert nominal<=31000 and temp<=40 and gpu_seconds<=10800
-    costs=dict(status='available_attempts_accounted',formal_attempts=attempts,formal_attempt_count=len(attempts),formal_nominal_attempts=nominal,formal_optimizer_updates=sum(a['actual_executed_optimizer_updates'] for a in attempts),temporary_nominal_steps=temp,
+    costs=dict(status='available_attempts_accounted',formal_attempts=attempts,formal_attempt_count=len(attempts),formal_nominal_attempts=nominal,formal_optimizer_updates=None,formal_optimizer_updates_interval=[sum(a['actual_executed_optimizer_updates_lower'] for a in attempts),sum(a['actual_executed_optimizer_updates_upper'] for a in attempts)],training_process_attempts=sum(r['label'] in ['W_fine_formal','W_all_formal','W_all_same_state_recovery','W_all_corrected_same_state_recovery'] for r in ledger),invalid_recovery_disclosed=True,temporary_nominal_steps=temp,
         gpu_task_wall_seconds=gpu_seconds,gpu_task_hours=gpu_seconds/3600,measurement='Serial GPU process wall time, includes imports/load/export/failed attempts. Not CUDA kernel time.',
         GPU='physical1 RTX3090',peak_PID_MiB=max((r.get('peak_process_nvidia_MiB') or 0) for r in ledger),jobs=[{k:v for k,v in r.items() if k!='samples'} for r in ledger],
         CPU=dict(initial_support=read(RUN/'initialization_support.json')['seconds'],appearance_evaluation=read(RUN/'diagnostics/appearance/summary.json')['seconds'],hos_evaluation=summary['seconds']),
@@ -91,7 +93,7 @@ def run():
                 for name,a in data.items():assert np.array_equal(a,saved[name])
             windows.append(dict(**identity(path),dataset=dataset,frame_id=fid,window=region,bounds_xyxy=bounds,image_size=example['image_size'],missing_modes=missing,sources={k:s['identity'] for k,s in sources.items()},arrays={k:dict(dtype=str(a.dtype),shape=list(a.shape),sha256=hashlib.sha256(a.tobytes()).hexdigest()) for k,a in data.items()}))
     save_json(RUN/'feedback_arrays/manifest.json',dict(status='available_modes_complete',windows=windows,selection=identity(RUN/'protocol/fixed_examples.json'),missing_not_fabricated=True))
-    manifest=read(RUN/'run_manifest.json');manifest.update(status='closed_with_failed_branch' if final['failures'] else 'completed',finals=identity(RUN/'protocol/finals.json'),failure_resolution=identity(RUN/'protocol/failure_resolution.json'),costs=identity(RUN/'costs.json'),actual_optimizer_updates=costs['formal_optimizer_updates'],actual_nominal_attempts=nominal,available_terminals=list(final['runs']),failed_branches=final['failures'],observation_only_entry=identity(RUN/'code/train_stage_audited.py'),mask_usage='Published training mask newly used for weighted RGB loss; unchanged pixels')
+    manifest=read(RUN/'run_manifest.json');manifest.update(status='closed_with_failed_branch' if final['failures'] else 'completed',finals=identity(RUN/'protocol/finals.json'),failure_resolution=identity(RUN/'protocol/failure_resolution.json'),costs=identity(RUN/'costs.json'),actual_optimizer_updates=costs['formal_optimizer_updates'],actual_optimizer_updates_interval=costs['formal_optimizer_updates_interval'],actual_nominal_attempts=nominal,available_terminals=list(final['runs']),failed_branches=final['failures'],observation_only_entry=identity(RUN/'code/train_stage_audited.py'),mask_usage='Published training mask newly used for weighted RGB loss; unchanged pixels')
     save_json(RUN/'run_manifest.json',manifest)
     save_json(RUN/'protocol/verification.json',dict(status='passed_for_available_outcomes_missing_explicit',inherited_and_frozen_assets=len(checked),max_retained_PSNR_recompute_error=max(differences),PSNR_region_rows_recomputed=len(differences),metric_rows=len(metrics),paired_rows=len(paired),appearance_rows=len(app),logs=counts,budget_verified=True,raw_windows=len(windows),seconds=time.monotonic()-start))
 if __name__=='__main__':run()
