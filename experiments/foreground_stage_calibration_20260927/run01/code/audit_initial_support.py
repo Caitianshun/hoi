@@ -16,6 +16,9 @@ def window(mask,foreground,size=128):
     x0=int(np.clip(cx-size//2,0,w-size));y0=int(np.clip(cy-size//2,0,h-size));return [x0,y0,x0+size,y0+size]
 def run():
     started=time.monotonic();cv2.setNumThreads(2);base=OLD/'inputs/hos_backpack';m=read(base/'manifest.json');ev=read(base/'evaluation_manifest.json')
+    if (RUN/'initialization_support.json').exists():
+        finalize_examples(m,ev)
+        return
     completion=read(OLD/'completion.json');assert completion['status']=='completed'
     selected=np.load(m['point_cloud']['npz_path']);raw=np.load(m['point_cloud']['raw_path']);choice=np.load(m['point_cloud']['selected_indices'])
     assert sha(m['point_cloud']['npz_path'])==m['point_cloud']['npz_sha256'];assert np.array_equal(selected['raw_selected_indices'],choice)
@@ -63,13 +66,19 @@ def run():
         source_identity=[identity(base/n) for n in ['initial_points.npz','initial_points_100k.npz','selected_raw_indices.npy','sampling_and_support.json']],
         stats=stats,frames=rows,figures=figures,all_source_ids_training_only=True,selected_matches_raw_indices=True,mask_threshold=128,uniform_training_indices=fixed,additional_area_extrema_indices=extra,
         no_masks_modified=True,scope='8px circular source-observation support proxy; quasi-static triangulation union across time, not canonical dynamic geometry or material correspondence',seconds=time.monotonic()-started))
+    finalize_examples(m,ev)
+def finalize_examples(m,ev):
+    # Reuse the completed source audit when only a downstream manifest failed.
+    base=OLD/'inputs/hos_backpack';frames=m['frames'];audit=read(RUN/'initialization_support.json')
+    fixed=audit['uniform_training_indices'];extra=audit['additional_area_extrema_indices']
+    assert audit['source_manifest']['sha256']==sha(base/'manifest.json')
     # Freeze illustration IDs and tiny-array windows from masks, without model scores.
     chosen=[]
     for i in indices(len(ev['frames']),4):
         f=ev['frames'][i];mask=cv2.imread(f['mask_path'],0)>=128;chosen.append(dict(dataset='hos_backpack',frame_id=f['frame_id'],image_size=[f['width'],f['height']],windows={'foreground':window(mask,True),'background':window(mask,False)}))
     for dev in ['dev1','dev2']:
         e=read(OLD/'inputs'/f'behave_{dev}'/'evaluation_manifest.json');f=e['frames'][(len(e['frames'])-1)//2]
-        z=np.load(f['regions']['path']);key='labels' if 'labels' in z else 'region';mask=z[key]>0
+        z=np.load(f['regions']['path']);mask=z['entity_labels']>0
         chosen.append(dict(dataset='behave_'+dev,frame_id=f['frame_id'],image_size=[f['width'],f['height']],windows={'foreground':window(mask,True),'background':window(mask,False)}))
     crops=[]
     for f in ev['frames']:
