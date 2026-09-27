@@ -22,6 +22,8 @@ def figure(path,arrays,labels,width=420):
 def mean_summary(rows):
     valid=[r for r in rows if r['pixels']>0 and r['sse_rgb_mean'] is not None];pixels=sum(r['pixels'] for r in valid);sse=sum(r['sse_rgb_mean'] for r in valid);mse=sse/pixels if pixels else None
     return dict(frames=len(rows),valid_frames=len(valid),pixels=pixels,sse_rgb_mean=sse if valid else None,pooled_mse=mse,pooled_psnr_db=-10*np.log10(max(mse,1e-12)) if mse is not None else None,
+        raw_pooled_mse=sum(r['raw_mse']*r['pixels'] for r in valid)/pixels if pixels else None,
+        raw_psnr_db=float(np.mean([r['raw_psnr_db'] for r in valid])) if valid else None,
         **{k:float(np.mean([r[k] for r in rows if r[k] is not None])) if any(r[k] is not None for r in rows) else None for k in METRICS})
 def heat(x):return cv2.cvtColor(cv2.applyColorMap(np.rint(np.clip(x,0,1)*255).astype(np.uint8),cv2.COLORMAP_INFERNO),cv2.COLOR_BGR2RGB)/255.
 def hos(net):
@@ -62,10 +64,10 @@ def hos(net):
                     mask=np.ones(labels.shape,bool) if region=='full' else labels==1 if region=='foreground' else labels==0
                     raw_mse=float(np.square(pred[mask]-gt[mask]).mean()) if available and mask.any() else None
                     result[region]['raw_mse']=raw_mse;result[region]['raw_psnr_db']=None if raw_mse is None else float(-10*np.log10(max(raw_mse,1e-12)))
-                    rows.append(dict(run=branch,status='completed' if available else 'failed_no_terminal',NA_reason=None if available else 'Formal attempt failed; no replacement model',split=split,frame_id=fid,source_frame_index=int(fid),time=frame['time'],time_units='normalized nominal source frame index; original index is not measured seconds',extrapolation=frame.get('extrapolation',int(fid)==0),region=region,region_source='published mask >=128 dynamic-subject foreground; includes carried bag but may exclude stationary bag',
+                    rows.append(dict(run=branch,status='completed' if available else freeze['attempts'][branch]['status'],NA_reason=None if available else freeze['attempts'][branch]['status']+'; no replacement model',split=split,frame_id=fid,source_frame_index=int(fid),time=frame['time'],time_units='normalized nominal source frame index; original index is not measured seconds',extrapolation=frame.get('extrapolation',int(fid)==0),region=region,region_source='published mask >=128 dynamic-subject foreground; includes carried bag but may exclude stationary bag',
                         **result[region],raw_clipped_policy='clip raw float RGB to [0,1] before metrics',raw_render_path=asset['path'],raw_render_sha256=asset['sha256']))
                 if available:indices.append(dict(run=branch,split=split,frame_id=fid,**asset))
-            if show:
+            if show and new:
                 path=RUN/'evaluation/figures'/f'{split}_{fid}_full.jpg';f=figure(path,[gt,*[preds[b] for b in ['H1','B_U','B_F']]],[fid+' GT','H1 uniform','B-U uniform' if 'B_U' in new else 'B-U NA failed','B-F balanced' if 'B_F' in new else 'B-F NA failed'],440);figs.append(dict(**f,split=split,frame_id=fid,kind='full',branch_order=['GT','H1','B_U','B_F'],raw_or_clipped='clipped [0,1]'))
                 if split=='retained':
                     x0,y0,x1,y1=crop[fid];path=path.with_name(path.stem.replace('_full','_foreground')+'.jpg');f=figure(path,[x[y0:y1,x0:x1] for x in [gt,*[preds[b] for b in ['H1','B_U','B_F']]]],[fid+' GT crop','H1 crop','B-U crop' if 'B_U' in new else 'B-U NA failed','B-F crop' if 'B_F' in new else 'B-F NA failed'],280);figs.append(dict(**f,split=split,frame_id=fid,kind='foreground_crop',crop_bounds_xyxy=crop[fid],branch_order=['GT','H1','B_U','B_F'],raw_or_clipped='clipped [0,1]'))
@@ -89,6 +91,10 @@ def hos(net):
                     b=index[right,split,a['frame_id'],region];assert a['pixels']==b['pixels'];delta={k:None if a[k] is None or b[k] is None else a[k]-b[k] for k in METRICS}
                     item=dict(comparison=pair,split=split,frame_id=a['frame_id'],region=region,**delta);differences.append(item);dd.append(item)
                 paired[pair][split][region]={k:dict(mean=float(np.mean([d[k] for d in dd if d[k] is not None])),median=float(np.median([d[k] for d in dd if d[k] is not None])),valid_frames=sum(d[k] is not None for d in dd)) if any(d[k] is not None for d in dd) else dict(mean=None,median=None,valid_frames=0) for k in METRICS}
+        paired[pair]['retained_without_00000']={}
+        for region in ['full','foreground','background']:
+            dd=[d for d in differences if d['comparison']==pair and d['split']=='retained' and d['frame_id']!='00000' and d['region']==region]
+            paired[pair]['retained_without_00000'][region]={k:dict(mean=float(np.mean([d[k] for d in dd if d[k] is not None])),median=float(np.median([d[k] for d in dd if d[k] is not None])),valid_frames=sum(d[k] is not None for d in dd)) if any(d[k] is not None for d in dd) else dict(mean=None,median=None,valid_frames=0) for k in METRICS}
     csvwrite(RUN/'paired_differences.csv',differences);rules=read(RUN/'configs/v5.json')['quality'];gates={}
     if all(b in new for b in ['B_U','B_F']):
         p=paired['B_F-B_U']['retained'];fg=p['foreground'];bg=p['background']
