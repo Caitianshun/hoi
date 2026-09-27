@@ -7,7 +7,14 @@ import diff_gaussian_rasterization as raster
 def run():
     assert os.environ.get('CUDA_VISIBLE_DEVICES')=='1';torch.set_num_threads(4)
     source=RUN/'runs/A_replay1b';a=list(torch.load(source/'raster_forward_last_inputs.pt',map_location='cpu',weights_only=False));b=torch.load(source/'raster_backward_last_inputs.pt',map_location='cpu',weights_only=False)
-    assert torch.equal(a[8],b[8]) and torch.equal(a[9],b[9])
+    # The batch's last forward and first backward are different views. Rebuild
+    # the exact failing call from backward arguments and its saved geometry.
+    n=len(b[1]);offset=0
+    for count,size in [(n,4),(3*n,1),(n,4),(2*n,4),(6*n,4)]:
+        offset=(offset+127)//128*128;offset+=count*size
+    offset=(offset+127)//128*128
+    opacity=b[17][offset:offset+16*n].view(torch.float32).view(n,4)[:,3:4].clone()
+    a=[b[0],b[1],b[3],opacity,b[4],b[5],b[6],b[7],b[8],b[9],b[10],b[11],b[12].shape[-2],b[12].shape[-1],b[14],b[15],b[16],False,b[21]]
     evidence=read(source/'kernel_case_analysis.json');ids=sorted({i for rows in evidence['bad_rows'].values() for i in rows});assert len(ids)==1
     for index in [1,2,3,4,5,7,14]:
         if torch.is_tensor(a[index]) and a[index].numel():a[index]=a[index][ids].clone()
