@@ -1,0 +1,39 @@
+{
+  "schema_version": 1,
+  "seed": 12345,
+  "physical_GPU": 1,
+  "budgets": {
+    "A_attempts": 512,
+    "A_probes": 64,
+    "A_GPU_seconds": 1800,
+    "B_attempts": 28000,
+    "total_GPU_seconds": 10800
+  },
+  "A_first_window": 8,
+  "A_second_window": 8,
+  "A_extended_window": 32,
+  "A_early_once_end": 1200,
+  "A_local_regression": 128,
+  "B_fine_iterations": 14000,
+  "B_policies": [
+    "uniform_fine",
+    "balanced_fine"
+  ],
+  "fixed_inputs": "V3 H1 original268train16dev",
+  "quality": {
+    "FG_PSNR_mean_min": 1.0,
+    "FG_PSNR_median_strict_min": 0.0,
+    "FG_LPIPS_mean_max": -0.05,
+    "BG_PSNR_mean_min": -0.3
+  },
+  "formal_gate": "All V5 section8 conditions must pass before B",
+  "no_BEHAVE_retraining": true,
+  "no_new_initialization": true,
+  "no_development_tuning": true,
+  "stabilization": {
+    "type": "rendered_final_log_scale_upper_bound",
+    "rule": "exp(min(log_scale_deformed, log(frozen_training_scene_extent)))",
+    "scope": "After deformation, before scaling activation; same for both fine arms",
+    "canonical_parameters_and_density_schedule_unchanged": true
+  }
+}

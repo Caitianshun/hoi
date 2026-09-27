@@ -16,6 +16,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SOURCE_ROOTS = ("scripts", "experiments", "research", "patches")
 ROOT_FILES = ("README.md", "AGENTS.md", ".gitignore", ".vscode/settings.json")
 EXTRA_CONFIG_FILES = (
+    "experiments/numerical_stability_calibration_20260927/run01/configs/v5.json",
     "experiments/foreground_stage_calibration_20260927/run01/configs/v4.json",
     "experiments/gvhmr_validation_20260923/reference_evaluation_protocol.json",
     "experiments/structured_hoi_20260923/object_init/fixed_track_pose_protocol.json",
@@ -65,6 +66,9 @@ def allowed(path: Path) -> bool:
     name = relative.as_posix()
     if name in ROOT_FILES or name in EXTRA_CONFIG_FILES:
         return True
+    if name.startswith("experiments/numerical_stability_calibration_20260927/run01/"):
+        # Diagnostic runtime snapshots and protocol/result JSON stay private.
+        return "/code/" in name and path.suffix in SOURCE_EXTENSIONS
     if relative.parts[0] == "patches":
         return len(relative.parts) == 2 and (path.suffix == ".patch" or path.name == "README.md")
     if name.startswith("scripts/systemd/") and path.suffix in {".service", ".timer"}:
