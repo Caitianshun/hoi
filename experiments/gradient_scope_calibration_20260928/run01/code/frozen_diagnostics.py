@@ -5,14 +5,14 @@ from PIL import Image,ImageDraw
 from render_utils import load_model,CalibratedCamera
 from diagnostic_render import make_renderer,diff
 from budget import CallBudget
-def run(arm):
+def run(arm,attempt=''):
     torch.set_num_threads(4);budget=CallBudget('D1_'+arm)
     base=RUN if arm=='C_route' else V5;rd=base/'runs'/arm;r=read(rd/'run.json')
     model,(_,hidden,_,pipe),state=load_model(r['checkpoint'],rd/'effective_config.json');del state
     bound=read(rd/'effective_config.json')['scale_bound'];render=make_renderer(bound);bg=torch.zeros(3,device='cuda')
     frames=read(OLD/'inputs/hos_backpack/manifest.json')['frames'];by={f['frame_id']:f for f in frames}
     ids=read(RUN/'protocol/fixed_examples.json')['training_frame_ids'];assert ids==['00001','00041','00081','00122','00162','00202','00243','00283']
-    out=RUN/'diagnostics'/arm;out.mkdir(exist_ok=False)
+    out=RUN/'diagnostics'/(arm+attempt);out.mkdir(exist_ok=False)
     contribution=[];probes=[];fgs=[];bgs=[];bound_counts=[]
     row_ids=np.arange(len(model.get_xyz),dtype=np.int64);sample_ids=row_ids[::997]
     for fid in ids:
@@ -28,10 +28,15 @@ def run(arm):
             color=render(cami,model,pipe,bg,override_color=colors,detach_attributes=True)
             alpha=color['render'][0]
             total=torch.autograd.grad(alpha.sum(),colors,retain_graph=True)[0][:,0].detach()
-            fg=torch.autograd.grad(alpha[mask].sum(),colors)[0][:,0].detach();back=total-fg
+            total_repeat=torch.autograd.grad(alpha.sum(),colors,retain_graph=True)[0][:,0].detach()
+            fg=torch.autograd.grad(alpha[mask].sum(),colors,retain_graph=True)[0][:,0].detach()
+            fg_repeat=torch.autograd.grad(alpha[mask].sum(),colors)[0][:,0].detach();back=total-fg
             checks=dict(channels_max_abs=float((color['render']-alpha[None]).abs().max()),radii_equal=torch.equal(p['radii'],color['radii']),geometry_max_abs=diff(p['xyz_final'],color['xyz_final'])['max_abs'],min_total=float(total.min()),min_fg=float(fg.min()),min_bg=float(back.min()),sum_total=float(total.double().sum()),sum_fg=float(fg.double().sum()),alpha_total=float(alpha.detach().double().sum()),alpha_fg=float(alpha.detach()[mask].double().sum()),FG_BG_max_abs=float((fg+back-total).abs().max()))
             checks['sum_total_relative_error']=abs(checks['sum_total']-checks['alpha_total'])/max(1,checks['alpha_total']);checks['sum_fg_relative_error']=abs(checks['sum_fg']-checks['alpha_fg'])/max(1,checks['alpha_fg'])
             assert checks['channels_max_abs']==0 and checks['radii_equal'] and checks['geometry_max_abs']==0
+            checks['total_repeat_max_abs']=float((total-total_repeat).abs().max());checks['fg_repeat_max_abs']=float((fg-fg_repeat).abs().max())
+            save_json(out/(fid+'_contribution_checks.json'),checks)
+            np.savez_compressed(out/(fid+'_probe_raw.npz'),total=total.cpu().numpy(),fg=fg.cpu().numpy(),total_repeat=total_repeat.cpu().numpy(),fg_repeat=fg_repeat.cpu().numpy())
             assert checks['min_total']>=0 and checks['min_fg']>=0 and checks['min_bg']>=-1e-5
             assert checks['sum_total_relative_error']<5e-5 and checks['sum_fg_relative_error']<5e-5
             fa=fg.cpu().numpy();ba=back.cpu().numpy();ta=total.cpu().numpy();active=np.flatnonzero((fa!=0)|(ba!=0)).astype(np.int32)
@@ -70,4 +75,4 @@ def run(arm):
     save_json(out/'time_camera_probe.json',dict(arm=arm,rows=probes,GT_only_diagonal=True,no_optimization=True))
     print('D1 complete',arm)
 if __name__=='__main__':
-    p=argparse.ArgumentParser();p.add_argument('--arm',required=True,choices=['B_U','B_F','C_route']);run(p.parse_args().arm)
+    p=argparse.ArgumentParser();p.add_argument('--arm',required=True,choices=['B_U','B_F','C_route']);p.add_argument('--attempt',default='');a=p.parse_args();run(a.arm,a.attempt)
