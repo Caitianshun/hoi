@@ -9,7 +9,9 @@ def run(a):
     assert remaining>0
     out=RUN/'logs'/a.label;out.mkdir(parents=True,exist_ok=False)
     command=[str(ROOT/'envs/4dgs/bin/python'),*a.command]
-    env=os.environ.copy();env.update(CUDA_VISIBLE_DEVICES='1',CUDA_LAUNCH_BLOCKING='1',OMP_NUM_THREADS='4')
+    env=os.environ.copy();env.update(CUDA_VISIBLE_DEVICES='1',OMP_NUM_THREADS='4')
+    if a.category=='A':env['CUDA_LAUNCH_BLOCKING']='1'
+    else:env.pop('CUDA_LAUNCH_BLOCKING',None)
     start=time.time()
     with (out/'console.log').open('w') as f:
         p=subprocess.Popen(command,stdout=f,stderr=subprocess.STDOUT,env=env,cwd=ROOT)
