@@ -43,6 +43,7 @@ class Runtime(BaseRuntime):
             for name,grads in [('G',[p.grad for _,p in G]),('A',[p.grad for _,p in A]),('q',self.q_uniform)]:norms[name]=float(torch.sqrt(sum(g.double().square().sum() for g in grads if g is not None)))
             self.audit.write(json.dumps(dict(iteration=self.iteration,batch=self.batch,U=float(self.U.detach()),F=float(self.F.detach()),R=float(self.R.detach()),norms=norms,states=states,screen_grad_source='explicit_returned_uniform',retained_q_grad_used=False))+'\n')
     def screen_grad_source(self,index,q):return self.q_uniform[index]
+    def screen_aggregate(self):return aggregate_screen_gradients(self.q_uniform)
     def optimizer_step(self,model):
         partition_current_optimizer_parameters(model)
         self.optimizer_ledger.write(json.dumps(dict(purpose=self.a.purpose,run=self.output.name,iteration=self.iteration,event='enter',pid=os.getpid()))+'\n')
@@ -74,6 +75,9 @@ def routed_loop(rt,render):
       '[v.grad for v in viewspace_point_tensor_list]':'runtime.q_uniform',
     }
     for old,new in changes.items():assert source.count(old)==1;source=source.replace(old,new)
+    old='viewspace_point_tensor_grad = torch.zeros_like(viewspace_point_tensor)\n        for idx in range(0, len(viewspace_point_tensor_list)):\n            viewspace_point_tensor_grad = viewspace_point_tensor_grad + runtime.screen_grad_source(idx,viewspace_point_tensor_list[idx])'
+    assert source.count(old)==1
+    source=source.replace(old,'viewspace_point_tensor_grad = runtime.screen_aggregate()')
     path=rt.output/'source_snapshots/train_routed.py';path.write_text(source)
     save_json(rt.output/'route_patch.json',dict(changes=changes,patched=identity(path),default_policy='original_uniform preserves V5 one backward',q_source='explicit return; retained .grad ignored in routed modes'))
     ns=official.__dict__.copy();ns.update(runtime=rt,restore_model=restore_model,training_report=rt.report,render=render);exec(compile(source,str(path),'exec'),ns)
