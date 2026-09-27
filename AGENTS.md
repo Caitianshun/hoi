@@ -226,3 +226,8 @@ V3完整系统与数据协议校准的三次正式训练、全部渲染评价和
 ## 2026-09-26 V5 新授权 数值定位与条件 fine 配对
 
 最新只读附件入口为 `experiments/numerical_stability_calibration_20260927/run01/protocol/user_guidance_source.md`。先按A有限状态恢复/边界诊断/单项稳定措施回归，全部第8节门槛成立后直接执行B-U uniform_fine与B-F balanced_fine，同原H1 coarse3000及官方fine重置，只改fine RGB监督。上限A512尝试、64无优化探针、1800 GPU任务秒；B两臂合计28000尝试，总10800 GPU任务秒，仅物理GPU1。新数值失败保存后关闭该臂，不新增尝试、不扫参；外部技术中断只从自身完整Adam/RNG/剩余栈续跑并累计预算。实际状态与结论读取私有pipeline.json、continuation.json、ROOT_CAUSE.md、formal_gate与最新RESEARCH_LOG，不把此入口当完成证明。两臂关闭后直接冻结/评价，小时跟进只兜底；DOCX逐页验收与最小ZIP交付后暂停V5跟进。BEHAVE不重跑，Tennis不看图，不自动新方法。AGENTS后续只记录范围和私有入口，实测结果不得硬编码进公开报告源码；历史同步例外保存在私有审计且不擅自重写Git历史。11月4冻结与11月5—15写作窗口保持。
+
+
+## 2026-09-27 V5 收口后的执行边界
+
+V5入口封存；实际终态、质量决定、成本、故障和文档验收只读取私有 `experiments/numerical_stability_calibration_20260927/run01/completion.json`、`NEXT_DECISION.md`、`ROOT_CAUSE.md` 与最新 `RESEARCH_LOG.md`，不从公开入口复制实测数值。按本轮授权交付后暂停v5跟进并保留全部历史，不自动从剩余预算追加优化、第三臂、权重扫描、BEHAVE重跑、Tennis看图/训练或新方法。下一方向须有单一可证伪问题、受控协议和明确预算，不把本轮建议作为执行授权。历史同步例外见私有 `protocol/public_sync_boundary_review.json`，不擅自重写Git历史。11月4日冻结与11月5—15日完整写作窗口保持。
