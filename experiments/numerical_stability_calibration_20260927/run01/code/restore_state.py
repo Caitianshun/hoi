@@ -13,7 +13,7 @@ def clone_cpu(v):
 def to_device(v,device):
     if isinstance(v,torch.nn.Parameter):return torch.nn.Parameter(v.detach().to(device).clone(),requires_grad=v.requires_grad)
     if torch.is_tensor(v):return v.to(device).clone()
-    if isinstance(v,dict):return {k:to_device(x,device) for k,x in v.items()}
+    if isinstance(v,dict):return {k:(x.cpu().clone() if k=='step' and torch.is_tensor(x) else to_device(x,device)) for k,x in v.items()}
     if isinstance(v,tuple):return tuple(to_device(x,device) for x in v)
     if isinstance(v,list):return [to_device(x,device) for x in v]
     return v
