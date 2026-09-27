@@ -1,0 +1,69 @@
+{
+  "schema_version": 1,
+  "run_id": "foreground_stage_calibration_20260927_run01",
+  "seed": 12345,
+  "batch_size": 2,
+  "physical_GPU": 1,
+  "budgets": {
+    "formal_runs": 2,
+    "formal_nominal_iterations": 31000,
+    "expected_optimizer_updates": 30998,
+    "temporary_optimization_steps": 40,
+    "GPU_task_wall_seconds": 10800
+  },
+  "branches": [
+    {
+      "id": "W_fine",
+      "policy": "balanced_fine",
+      "start": "V3 H1 coarse3000 checkpoint",
+      "coarse_new": 0,
+      "fine_new": 14000
+    },
+    {
+      "id": "W_all",
+      "policy": "balanced_all",
+      "start": "V3 H1 original untrained 100k point cloud",
+      "coarse_new": 3000,
+      "fine_new": 14000
+    }
+  ],
+  "RGB_loss": {
+    "foreground_threshold": 128,
+    "per_image": true,
+    "foreground_weight": 0.5,
+    "background_weight": 0.5,
+    "single_nonempty_region_weight": 1,
+    "raw_RGB": true,
+    "batch": "equal mean of image losses"
+  },
+  "validation": {
+    "primary": "W_fine-H1",
+    "secondary": [
+      "W_all-H1",
+      "W_all-W_fine"
+    ],
+    "retained_set_role": "previously inspected fixed development holdout, not untouched test",
+    "FG_PSNR_mean_delta_min": 1.0,
+    "FG_PSNR_paired_median_strict_min": 0.0,
+    "FG_LPIPS_mean_delta_max": -0.05,
+    "BG_PSNR_mean_delta_min": -0.3,
+    "quality_review": "All fixed retained frames; enumerate IDs of new limb/float/background failures; possible veto",
+    "training_threshold": "diagnostic only, not an additional hard promotion gate"
+  },
+  "appearance_modes": [
+    "native",
+    "dc_only",
+    "cam0_direction"
+  ],
+  "gradient_probe_indices_rule": "floor(k*(N-1)/3), k=0,1,2,3",
+  "snapshot_stages": [
+    "coarse3000",
+    "fine1000",
+    "fine14000"
+  ],
+  "time_units": "HOS nominal frame index, not measured seconds",
+  "no_extra_datasets_or_training": true,
+  "independent_future_sequence": "Tennis inventory/split only, no image/model-quality inspection",
+  "closing_date": "2026-09-29",
+  "decision_deadline": "2026-10-01"
+}

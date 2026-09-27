@@ -16,6 +16,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SOURCE_ROOTS = ("scripts", "experiments", "research", "patches")
 ROOT_FILES = ("README.md", "AGENTS.md", ".gitignore", ".vscode/settings.json")
 EXTRA_CONFIG_FILES = (
+    "experiments/foreground_stage_calibration_20260927/run01/configs/v4.json",
     "experiments/gvhmr_validation_20260923/reference_evaluation_protocol.json",
     "experiments/structured_hoi_20260923/object_init/fixed_track_pose_protocol.json",
 )
