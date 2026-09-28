@@ -66,8 +66,12 @@ def schedule(scene, stage):
 
 
 def sampler_at(sched, completed):
+    used = completed * sched['batch_size']
+    offset = used % sched['camera_count']
+    flat = [i for batch in sched['batches'] for i in batch]
+    taken = set(flat[used-offset:used]) if offset else set()
     return dict(completed_updates=completed,
-                remaining_stack=sched['remaining_stacks'][completed],
+                remaining_stack=[i for i in range(sched['camera_count']) if i not in taken],
                 next_frame_uids=sched['batches'][completed] if completed < len(sched['batches']) else [],
                 schedule_sha256=sched['schedule_sha256'])
 
