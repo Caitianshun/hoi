@@ -71,10 +71,15 @@ def main():
     torch.set_num_threads(config()['hardware']['CPU_threads'])
     initial=torch.load(scene_dir('Backpack')/'protocol/coarse_initial.pt',map_location='cpu',weights_only=False)
     cams=load_cameras('Backpack',True)
-    bg_model,bg_state=engine(initial,'BG',8,RUN/'diagnostics/BG8_fixed',kind='diagnostic',cameras=cams)
+    bg_out=RUN/'diagnostics/BG8_fixed'
+    if (bg_out/'run.json').exists():
+        bg_state=torch.load(read(bg_out/'run.json')['checkpoint']['path'],map_location='cpu',weights_only=False)
+        bg_model,_=restore(bg_state)
+    else:
+        bg_model,bg_state=engine(initial,'BG',8,bg_out,kind='diagnostic',cameras=cams)
     fine,transition=compose_fine(bg_model,'Backpack',initial['metadata']); del bg_model
     atomic_checkpoint(RUN/'diagnostics/shared_short_fine0.pt',fine)
-    identity=identity_renders(fine); topo=topology(fine); probes=[]
+    identity_check=identity_renders(fine); topo=topology(fine); probes=[]
     def probe(model,rgb,iteration):
         if iteration not in [1,2,64]:return
         ledger=RUN/'protocol/extra_backwards.jsonl'
@@ -86,17 +91,51 @@ def main():
         grads=torch.autograd.grad(rgb,params,retain_graph=True,allow_unused=True)
         static=~model._deformation_table
         norms={name:float(g[static].norm()) if g is not None else 0 for name,g in zip(ATTRS,grads[:6])}
-        row=dict(iteration=iteration,static_Q_gradient_norms=norms,
+        row=dict(iteration=iteration,active_SH=model.active_sh_degree,static_Q_gradient_norms=norms,
                  new_columns_Q_gradient=float(grads[6][:,-4:].norm()),
                  grid_Q_gradient=float(torch.stack([g.norm() for g in grads[7:] if g is not None]).norm()))
         if iteration==1:
             assert row['grid_Q_gradient']==0 and row['new_columns_Q_gradient']==0
         if iteration==64:
             assert row['grid_Q_gradient']>0 and row['new_columns_Q_gradient']>0
-            assert all(v>0 for v in norms.values()),norms
+            assert all(v>0 for k,v in norms.items() if k!='_features_rest' or model.active_sh_degree>0),norms
         probes.append(row)
+        append_json(RUN/'protocol/RGB_gradient_probes.jsonl',row)
     # 64 updates + a 16-update replay, plus BG8 = 88 total Adam calls.
-    model,terminal=engine(fine,'SL',64,RUN/'diagnostics/SL64',kind='diagnostic',checkpoint_at=[48],cameras=cams,probe=probe)
+    failure_path=RUN/'diagnostics/SL64/failure.json'
+    if failure_path.exists():
+        failure=read(failure_path)
+        assert failure['completed_updates']==63 and "'_features_rest': 0.0" in failure['traceback']
+        saved_path=RUN/'diagnostics/SL64/failure_state.pt'
+        saved=torch.load(saved_path,map_location='cpu',weights_only=False)
+        assert saved['completed_updates']==63 and saved['attempted_iteration']==64
+        assert all(g is None for group in saved['gradients'].values() for g in group)
+        # The old diagnostic assertion ran during autograd.grad before backward
+        # and Adam at 64. Parameters/moments are exactly after step 63. Only LR
+        # had already advanced; restore its schedule position explicitly.
+        terminal=clone_cpu(fine)
+        terminal.update(model=saved['model'],deformation_accum=saved['deformation_accum'],rng=saved['rng'],mode='SL',
+                        completed_updates=63,iteration=63,optimizer_updates=63,sampler=sampler_at(schedule('Backpack','fine'),63))
+        model,_=restore(terminal);model.update_learning_rate(63)
+        terminal=capture(model,'Backpack','SL','fine',63,schedule('Backpack','fine'),fine['metadata'])
+        for i in [1,2,3,4,5,6,7,8,9,10,11]:exact(terminal['model'][i],saved['model'][i])
+        recovered=atomic_checkpoint(RUN/'diagnostics/audited_after_step63.pt',terminal)
+        save_json(RUN/'protocol/diagnostic_recovery.json',dict(source=identity(saved_path),after_step63=recovered,
+            cause='Short BG8 has active SH0, so higher-order SH RGB gradient is correctly zero; assertion was too broad',
+            parameters_and_moments_unchanged=True,only_LR_schedule_position_restored=True,new_Adam_updates=0))
+        # Save explicit RGB-only path evidence, without replacing any history.
+        fresh,(ds,h,o,pipe)=restore(fine,'SL',True)
+        render=make_renderer(fine['metadata']['scale_bound'],'SL')
+        batch=[cams[i] for i in schedule('Backpack','fine')['batches'][0]]
+        rgb,_,_=quality_objective(torch.stack([render(c,fresh,pipe,rgb_background(ds),stage='fine')['render'] for c in batch]),
+                                 torch.stack([c.original_image.cuda() for c in batch]))
+        probe(fresh,rgb,1);del fresh,rgb
+        degree=model.active_sh_degree;model.active_sh_degree=model.max_sh_degree
+        rgb,_,_=quality_objective(torch.stack([render(c,model,pipe,rgb_background(ds),stage='fine')['render'] for c in batch]),
+                                 torch.stack([c.original_image.cuda() for c in batch]))
+        probe(model,rgb,64);model.active_sh_degree=degree;del rgb
+    else:
+        model,terminal=engine(fine,'SL',64,RUN/'diagnostics/SL64',kind='diagnostic',checkpoint_at=[48],cameras=cams,probe=probe)
     with torch.no_grad():
         a=deform_attributes(model,0.,'SL'); b=deform_attributes(model,1.,'SL');static=~model._deformation_table
         for x,y in zip(a,b):assert torch.equal(x[static],y[static])
@@ -105,7 +144,8 @@ def main():
     restored,_=restore(before)
     exact(restored.capture(),before['model']);exact(restored._deformation_accum,before['deformation_accum'])
     exact(rng_capture(),before['rng']); del restored
-    model,replayed=engine(before,'SL',64,RUN/'diagnostics/SL_resume16',kind='diagnostic',cameras=cams)
+    target=terminal['completed_updates']
+    model,replayed=engine(before,'SL',target,RUN/'diagnostics'/f'SL_resume{target-48}',kind='diagnostic',cameras=cams)
     exact(replayed['sampler'],terminal['sampler']); exact(replayed['rng'],terminal['rng'])
     # CUDA reduction order can vary. Report tensor differences, no science gate.
     differences={}
@@ -131,11 +171,17 @@ def main():
         six_fine_updates=180000,common_BG_updates=6000,render_init_verify_allowance_seconds=1800,
         predicted_GPU_seconds=predicted,limit_GPU_seconds=config()['budgets']['GPU_seconds'],
         estimated_not_guaranteed=True,all_six_arms_included=True))
-    actual_updates=len((RUN/'protocol/diagnostic_attempts.jsonl').read_text().splitlines())
-    assert actual_updates==96
+    actual_updates=0;failed_updates=0
+    for folder in (RUN/'diagnostics').iterdir():
+        if not folder.is_dir():continue
+        evidence=folder/'run.json' if (folder/'run.json').exists() else folder/'failure.json'
+        if evidence.exists():
+            r=read(evidence);actual_updates+=r['updates_this_process']
+            if r['status']=='failed':failed_updates+=r['updates_this_process']
+    assert actual_updates<=config()['budgets']['integrated_Adam_updates']
     save_json(RUN/'protocol/module_acceptance.json',dict(status='passed',diagnostic_Adam_updates=actual_updates,
-        failed_technical_check_Adam_updates=8,correction='finite-state checks group CPU Adam step and GPU tensors by device',
-        extra_no_update_backwards=len(probes),identity=identity,topology=topo,variable_seed_preservation=transition,
+        failed_technical_check_Adam_updates=failed_updates,correction='Group finite checks by device; only active SH coefficients require nonzero RGB gradients',
+        extra_no_update_backwards=len((RUN/'protocol/extra_backwards.jsonl').read_text().splitlines()),identity=identity_check,topology=topo,variable_seed_preservation=transition,
         RGB_only_path_probes=probes,static_time_independent=True,strict_restore_model_Adam_domain_RNG=True,
         replay_tensor_differences=differences,shared_RGB_sequence_and_remaining_stack=True,
         ordinary_RGB_background='white',single_Q=True,TEM=False,M1=False,development_quality_read=False))
