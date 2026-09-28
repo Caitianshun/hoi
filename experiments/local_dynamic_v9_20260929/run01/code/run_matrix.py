@@ -65,7 +65,7 @@ def prepare():
 
 def verify():
     assert read(RUN/'protocol/prepared.json')['status']=='prepared'
-    job('integrated_acceptance_finish','verify.py')
+    job('integrated_acceptance_contract_audit','verify.py')
     assert read(RUN/'protocol/module_acceptance.json')['status']=='passed'
 
 
