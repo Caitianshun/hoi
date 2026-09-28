@@ -63,9 +63,10 @@ def run():
     formal=[json.loads(x) for x in (RUN/'protocol/formal_attempts.jsonl').read_text().splitlines()]
     diagnostic=[json.loads(x) for x in (RUN/'protocol/diagnostic_attempts.jsonl').read_text().splitlines()]
     extra=[json.loads(x) for x in (RUN/'protocol/extra_backwards.jsonl').read_text().splitlines()]
+    actual_diagnostic_updates=read(RUN/'protocol/module_acceptance.json')['diagnostic_Adam_updates']
     assert completed==config()['budgets']['normal_formal_updates']
     assert completed<=len(formal)<=config()['budgets']['formal_attempts']
-    assert len(diagnostic)<=config()['budgets']['integrated_Adam_updates'] and len(extra)<=config()['budgets']['extra_no_update_backwards']
+    assert actual_diagnostic_updates<=config()['budgets']['integrated_Adam_updates'] and len(extra)<=config()['budgets']['extra_no_update_backwards']
     gpu=[json.loads(x) for x in (RUN/'protocol/GPU_jobs.jsonl').read_text().splitlines()]
     assert sum(x['wall_seconds'] for x in gpu)<=config()['budgets']['GPU_seconds']
     save_json(RUN/'model_index.json',dict(assets=assets,models=model_checks))
@@ -73,6 +74,7 @@ def run():
         rows=len(rows),paired_rows=len(diffs),PSNR_recomputed=checked_psnr,max_PSNR_difference=max_psnr,
         max_pair_difference=max_pair,max_aggregate_difference=max_aggregate,formal_updates=completed,
         formal_attempts=len(formal),replay_attempts=len(formal)-completed,diagnostic_attempts=len(diagnostic),
+        diagnostic_Adam_updates=actual_diagnostic_updates,
         no_update_backwards=len(extra),SSIM_LPIPS_scope='Original evaluator executed once, independent aggregation and pairing only',
         terminal_identities_and_training_source_hashes=True))
 
