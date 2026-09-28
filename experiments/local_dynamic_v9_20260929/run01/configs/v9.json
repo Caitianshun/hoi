@@ -1,0 +1,31 @@
+{
+  "protocol": "V9",
+  "modes": ["Q0", "S", "SL"],
+  "scenes": {
+    "Backpack": {
+      "input_dir": "experiments/baseline_protocol_calibration_20260927/run01/inputs/hos_backpack",
+      "historical_dir": "experiments/temporal_evidence_v8_20260928/run01",
+      "training_frames": 268, "retained_frames": 16, "time_denominator": 282
+    },
+    "Tennis": {
+      "input_dir": "experiments/temporal_evidence_v8_20260928/run01/tennis/inputs/hos_tennis",
+      "historical_dir": "experiments/temporal_evidence_v8_20260928/run01/tennis",
+      "training_frames": 285, "retained_frames": 16, "time_denominator": 299
+    }
+  },
+  "seed": 12345,
+  "role_tie_seed": 9275000,
+  "rgb_coarse_seed": 9273000,
+  "rgb_fine_seed": 12345,
+  "variable_BG_reserve": 5000,
+  "mask_threshold": 128,
+  "mask_dilation_square": 7,
+  "batch_size": 2,
+  "background": "white",
+  "quality_objective": {"L1": 0.8, "one_minus_SSIM11": 0.2, "raw_RGB": true},
+  "local_domain": {"quantiles": [0.01, 0.99], "radius_factor": 0.625, "minimum_extent_fraction": 0.001, "query": "-tanh(z)", "direct_input": "softsign(z),2t-1"},
+  "schedule": {"coarse_updates": 3000, "fine_updates": 30000, "fine_lr_max_steps": 30000, "checkpoint_interval": 250, "middle_snapshot": 14000, "density_before_Adam": true, "save_after_final_Adam": true},
+  "budgets": {"GPU_seconds": 57600, "normal_formal_updates": 186000, "formal_attempts": 188048, "integrated_Adam_updates": 96, "extra_no_update_backwards": 32, "external_resumes_per_job": 1, "replay_updates_per_job": 256},
+  "hardware": {"physical_GPU": 1, "name": "NVIDIA GeForce RTX 3090", "CPU_threads": 4},
+  "evaluation": {"primary": "retained_development", "RGB_clip": [0, 1], "regions": ["full", "foreground", "background"], "metrics": ["psnr_db", "ssim", "lpips_spatial_mean"], "ssim": "unchanged V8 7x7 non-Gaussian sample covariance", "lpips": "AlexNet 0.1 spatial normalize=True", "ties": 0.000001, "scene_aggregation": "equal scene weights", "quality_gate": "complete vectors and explained tradeoffs, no all-metric veto"}
+}
