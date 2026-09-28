@@ -10,8 +10,9 @@ from hoi_modules.static_dynamic_gaussians import validate_point_state
 
 def finite(tensors, label):
     values=[t.detach() for t in tensors if torch.is_tensor(t) and t.is_floating_point() and t.numel()]
-    if values and not bool(torch.stack([torch.isfinite(t).all() for t in values]).all()):
-        raise FloatingPointError(label)
+    for device in {t.device for t in values}:
+        if not bool(torch.stack([torch.isfinite(t).all() for t in values if t.device==device]).all()):
+            raise FloatingPointError(label)
 
 
 def all_state_tensors(model):
@@ -175,7 +176,7 @@ def run(a):
             reason=a.external_reason,time_unix=time.time()))
     else:
         assert not out.exists(),str(out)
-        path=sd/'protocol'/('coarse_initial.pt' if stage=='coarse' else 'shared_fine0.pt')
+        path=sd/'protocol'/('coarse_initial_verified.pt' if stage=='coarse' else 'shared_fine0.pt')
         state=torch.load(path,map_location='cpu',weights_only=False)
     for asset in state['metadata']['source_code']:
         assert sha(asset['path'])==asset['sha256'],asset['path']

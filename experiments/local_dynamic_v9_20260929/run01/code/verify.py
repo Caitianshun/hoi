@@ -5,7 +5,7 @@ import torch
 from state import *
 from train_scene import engine
 from render_scene import make_renderer,rgb_background
-from prepare_initialization import compose_fine
+from prepare_initialization import compose_fine,source_code_identity
 from hoi_modules.static_dynamic_gaussians import deform_attributes,validate_point_state
 
 
@@ -71,7 +71,7 @@ def main():
     torch.set_num_threads(config()['hardware']['CPU_threads'])
     initial=torch.load(scene_dir('Backpack')/'protocol/coarse_initial.pt',map_location='cpu',weights_only=False)
     cams=load_cameras('Backpack',True)
-    bg_model,bg_state=engine(initial,'BG',8,RUN/'diagnostics/BG8',kind='diagnostic',cameras=cams)
+    bg_model,bg_state=engine(initial,'BG',8,RUN/'diagnostics/BG8_fixed',kind='diagnostic',cameras=cams)
     fine,transition=compose_fine(bg_model,'Backpack',initial['metadata']); del bg_model
     atomic_checkpoint(RUN/'diagnostics/shared_short_fine0.pt',fine)
     identity=identity_renders(fine); topo=topology(fine); probes=[]
@@ -131,11 +131,27 @@ def main():
         six_fine_updates=180000,common_BG_updates=6000,render_init_verify_allowance_seconds=1800,
         predicted_GPU_seconds=predicted,limit_GPU_seconds=config()['budgets']['GPU_seconds'],
         estimated_not_guaranteed=True,all_six_arms_included=True))
-    save_json(RUN/'protocol/module_acceptance.json',dict(status='passed',diagnostic_Adam_updates=88,
+    actual_updates=len((RUN/'protocol/diagnostic_attempts.jsonl').read_text().splitlines())
+    assert actual_updates==96
+    save_json(RUN/'protocol/module_acceptance.json',dict(status='passed',diagnostic_Adam_updates=actual_updates,
+        failed_technical_check_Adam_updates=8,correction='finite-state checks group CPU Adam step and GPU tensors by device',
         extra_no_update_backwards=len(probes),identity=identity,topology=topo,variable_seed_preservation=transition,
         RGB_only_path_probes=probes,static_time_independent=True,strict_restore_model_Adam_domain_RNG=True,
         replay_tensor_differences=differences,shared_RGB_sequence_and_remaining_stack=True,
         ordinary_RGB_background='white',single_Q=True,TEM=False,M1=False,development_quality_read=False))
+    # Preserve the original preparation snapshots, change only implementation
+    # provenance after the disclosed checker fix, then freeze formal inputs.
+    sources=source_code_identity()
+    for scene in config()['scenes']:
+        path=scene_dir(scene)/'protocol/coarse_initial.pt'
+        s=torch.load(path,map_location='cpu',weights_only=False)
+        before=clone_cpu(s['model'])
+        s['metadata']['pre_acceptance_source_code']=s['metadata']['source_code']
+        s['metadata']['source_code']=sources
+        exact(before,s['model'])
+        asset=atomic_checkpoint(scene_dir(scene)/'protocol/coarse_initial_verified.pt',s)
+        save_json(scene_dir(scene)/'protocol/formal_source_freeze.json',dict(status='frozen',original=identity(path),
+            verified=asset,model_Adam_RNG_sampler_unchanged=True,source_code=sources))
 
 
 if __name__=='__main__':main()
