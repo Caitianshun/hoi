@@ -104,7 +104,7 @@ def evaluate():
 
 def report():
     assert read(RUN/'protocol/independent_verification.json')['status']=='passed'
-    job('build_report','build_report.py',gpu=False)
+    job('prepare_report','prepare_report.py',gpu=False)
     save_json(RUN/'pipeline.json',dict(status='evaluated_pending_visual_review_and_delivery_QA',
         phase='report_review',time_unix=time.time(),pid=os.getpid()))
 
