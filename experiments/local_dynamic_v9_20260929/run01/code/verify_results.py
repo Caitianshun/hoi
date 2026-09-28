@@ -15,7 +15,7 @@ def run():
     metrics=['psnr_db','ssim','lpips_spatial_mean'];max_pair=0.;max_psnr=0.;checked_psnr=0
     for d in diffs:
         a,b=d['comparison'].split('-');key=(d['scene'],d['split'],d['frame_id'],d['region'])
-        x=idx[key[0],a,*key[1:]];y=idx[key[0],b,*key[1:]]
+        x=idx[(key[0],a,*key[1:])];y=idx[(key[0],b,*key[1:])]
         for k in metrics:
             if d[k]!='':max_pair=max(max_pair,abs(float(x[k])-float(y[k])-float(d[k])))
     assert max_pair<1e-12
