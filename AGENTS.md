@@ -244,3 +244,7 @@ V6当前执行入口关闭；实际门槛、失败定位、未执行项、成本
 ## 2026-09-27 V7 新授权 外观梯度路由模块
 
 用户最新附件明确替代V6下一步与质量门槛；只读来源为 `experiments/appearance_router_v7_20260928/run01/protocol/user_guidance_source.md`。复用旧D0/D1，封装独立AttributeGradientRouter，先按engineering_equivalence_v2固定1e−3张量相对容限完成一次集成验收、128轮主回归与24轮自身恢复。诊断优化含所有副本Adam最多160、无优化render/backward各64、诊断900GPU任务秒。通过或accepted_numerical_variation后直接从原shared fine0执行唯一appearance_only至fine14000；正式实际尝试最多14256，只允许一次外部中断的最多256尾段重放，总10800GPU任务秒，仅物理GPU1。保持原density-before-Adam与末轮不step。全图与FG的PSNR/SSIM/LPIPS优先，完整向量与两参照判断，取消旧质量和辅助代理veto；不扫权重、不扩数据、不加新模块。保留旧失败，不用旧微小CUDA包络阻塞新验收。实际执行和结果见私有run状态、completion及研究日志，代码/源配置依白名单同步。11月4冻结与11月5—15写作窗口不变。
+
+## 2026-09-28 V8 新授权 时序证据完整矩阵
+
+用户最新附件只读来源为 `experiments/temporal_evidence_v8_20260928/run01/protocol/user_guidance_source.md`，替代V7阶段的下一步限制。保留旧B-U和全部历史，M1默认关闭；Backpack固定268训练和16开发，训练RGB专用CoTracker3缓存，Q为0.8原均匀L1加0.2原11像素SSIM结构项。三新臂B-Q至fine14000，T-plain/T-mix复用B-Q1000完整状态至14000；一次固定8配对训练批梯度尺度校准，无开发调参。唯一新机制为同源alpha混合的双时刻投影位移二阶矩分歧gate，源几何权重及gate均detach，时序梯度只直接作用位置路径，增密保留Q屏幕梯度。仅物理GPU1，诊断128 Adam、额外无优化backward64、正式最多40768尝试，V8A八GPU任务小时。全部新终态冻结后统一三指标和FG评价，允许合理取舍，不用辅助几何/track代理作质量veto。按完整证据条件，仅Tennis允许一次独立确认、另八GPU任务小时；没有价值候选则关闭具体配置，不新增gate/attention/骨干。新颖性允许迁移与组合，有近邻本身不是淘汰理由。实测状态、成本与判断读取私有pipeline/run/日志；发布只含自产代码和源配置。DOCX嵌图逐页验收与可复算ZIP交付后暂停V8跟进。11月4冻结与11月5至15完整写作窗口保持。
