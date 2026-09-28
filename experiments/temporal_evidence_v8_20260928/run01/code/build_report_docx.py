@@ -89,7 +89,9 @@ def run():
     r.table(tab,[1.1,1.1,1.1,2.1,1.59],9);r.p('这些轨迹误差、gate、alpha与点数用于解释，不是质量veto。各次调用时刻和模型不同，不能把过程统计当独立真实轨迹精度。')
 
     r.page('独立确认决定与研究边界')
-    for text in review['independent_confirmation']:r.p(text)
+    independent=read(RUN/'independent_confirmation.json') if (RUN/'independent_confirmation.json').exists() else {}
+    for text in review['independent_confirmation']:
+        if text not in independent.get('interpretation',[]):r.p(text)
     if (RUN/'independent_confirmation.json').exists():
         independent=read(RUN/'independent_confirmation.json')
         if independent.get('status')=='completed':
