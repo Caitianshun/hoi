@@ -7,18 +7,27 @@ def status(phase, **extra):
     save_json(RUN/'pipeline.json',dict(status='running',phase=phase,pid=os.getpid(),time_unix=time.time(),**extra))
 
 
-def check_gpu(twice=False):
-    readings=[]
-    for i in range(2 if twice else 1):
+def check_gpu():
+    # Utilization can outlive the preceding process in a sampled nvidia-smi
+    # reading. Require two idle observations; bounded waiting never preempts
+    # another process or relaxes the original ownership/memory/load checks.
+    readings=[]; consecutive_idle=0
+    for i in range(40):
         output=subprocess.check_output(['nvidia-smi','--query-gpu=index,uuid,name,memory.used,utilization.gpu','--format=csv,noheader'],text=True)
         procs=subprocess.check_output(['nvidia-smi','--query-compute-apps=gpu_uuid,pid,used_memory','--format=csv,noheader'],text=True)
         selected=next(row for row in output.splitlines() if row.split(',')[0].strip()==str(config()['hardware']['physical_GPU']))
         fields=[x.strip() for x in selected.split(',')]
         assert fields[2]==config()['hardware']['name']
-        assert fields[1] not in procs and int(fields[3].split()[0])<100 and int(fields[4].split()[0])<5,(selected,procs)
-        readings.append(dict(time_unix=time.time(),GPUs=output,compute_processes=procs,loadavg=Path('/proc/loadavg').read_text()))
-        if twice and i==0:time.sleep(15)
-    append_json(RUN/'protocol/resource_checks.jsonl',dict(readings=readings))
+        idle=fields[1] not in procs and int(fields[3].split()[0])<100 and int(fields[4].split()[0])<5
+        consecutive_idle=consecutive_idle+1 if idle else 0
+        readings.append(dict(time_unix=time.time(),GPUs=output,compute_processes=procs,
+            loadavg=Path('/proc/loadavg').read_text(),idle=idle))
+        if consecutive_idle==2:
+            append_json(RUN/'protocol/resource_checks.jsonl',dict(status='idle_confirmed',readings=readings))
+            return
+        if i<39:time.sleep(15)
+    append_json(RUN/'protocol/resource_checks.jsonl',dict(status='resource_wait_timeout',readings=readings))
+    raise RuntimeError('Selected GPU did not have two consecutive idle readings within the bounded resource wait')
 
 
 def job(label, script, args=(), gpu=True):
@@ -49,7 +58,7 @@ def job(label, script, args=(), gpu=True):
 
 def prepare():
     assert not (RUN/'protocol/prepared.json').exists()
-    check_gpu(twice=True)
+    check_gpu()
     assert shutil.disk_usage(ROOT).free>100*(1<<30)
     original=subprocess.check_output(['git','-C',str(UPSTREAM),'rev-parse','HEAD'],text=True).strip()
     assert original==OFFICIAL_COMMIT
