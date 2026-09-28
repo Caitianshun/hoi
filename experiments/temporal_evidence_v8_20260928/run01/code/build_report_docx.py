@@ -100,6 +100,36 @@ def run():
                     x=s['retained'][reg];tab.append([label,arm,*[num(x[k],6) for k in KEYS]])
             r.table(tab,[.8,1.1,1.7,1.7,1.69],9)
             for text in independent['interpretation']:r.p(text)
+            other_cost=read(RUN/'tennis/costs.json');other_verify=read(RUN/'tennis/protocol/independent_verification.json');prep=read(RUN/'tennis/protocol/preprocessing.json')
+            r.p(f"Tennis使用自身{prep['training_count']}个训练帧与{prep['development_count']}个保留帧，原尺寸{prep['resolution'][0]}乘{prep['resolution'][1]}；时间归一分母{prep['time_normalization']['denominator']}，训练输入确定的共同尺度上界{prep['scene_extent']:.8f}。训练点云来自相同固定SIFT双视图规则与90k背景加10k前景上限；不是发布人体拟合或开发RGB初始化。相机原SfM来源范围未知的限制保持。")
+            for split,title in [('retained','独立序列开发完整结果'),('train','独立序列训练拟合结果'),('retained_without_00000','独立序列十五帧补充结果')]:
+                r.page(title);tab=[['区域','设置','PSNR','SSIM','LPIPS','池化PSNR','raw PSNR']]
+                for reg,label in REGIONS:
+                    for arm,s in other['summaries'].items():
+                        x=s[split][reg];tab.append([label,arm.replace('_',' '),*[num(x[k],6) for k in KEYS],num(x['pooled_psnr_db'],6),num(x['raw_psnr_db'],6)])
+                r.table(tab,[.65,.9,1.09,1.02,1.05,1.12,1.16],8.5)
+                tab=[['区域','指标','均值差','中位差','胜 平 负']]
+                for reg,label in REGIONS:
+                    for k,labelk in zip(KEYS,['PSNR','SSIM','LPIPS']):
+                        d=other['paired']['B_Q-B_U'][split][reg][k];tab.append([label,labelk,num(d['mean'],6,True),num(d['median'],6,True),f"{d['win']}  {d['tie']}  {d['loss']}"])
+                r.table(tab,[.8,1.,1.73,1.73,1.73],9)
+                r.p('本页差值均为Tennis Q减U；LPIPS负数表示改善。独立确认采用同一原评价函数，两个终态冻结后才读取开发质量。完整时间块与原数值另存Tennis数字文件，不把逐帧胜率当独立场景显著性。')
+            other_ex=read(RUN/'tennis/protocol/fixed_examples.json');other_figs=read(RUN/'tennis/figure_manifest.json')['figures']
+            for start in range(0,16,4):
+                ids=other_ex['development_frame_ids'][start:start+4]
+                for kind,title,cols in [('full','独立序列开发全图',1),('foreground_crop','独立序列前景裁剪',2)]:
+                    r.page(title+' '+str(start//4+1));r.p('每组左至右GT、B U、B Q。全部保留帧按事前时间顺序显示；裁剪只使用输入mask边框加24像素，不依预测选择。','Caption')
+                    items=[x for fid in ids for x in other_figs if x['split']=='retained' and x['frame_id']==fid and x['kind']==kind]
+                    r.image(r.sheet('tennis_'+kind+'_'+str(start),items,cols,True),'Tennis '+', '.join(ids)+'。',max_height=7.6)
+            for start in range(0,8,4):
+                ids=other_ex['training_frame_ids'][start:start+4];r.page('独立序列固定训练图 '+str(start//4+1))
+                items=[x for fid in ids for x in other_figs if x['split']=='train' and x['frame_id']==fid and x['kind']=='full'];r.image(r.sheet('tennis_train_'+str(start),items,1,True),'GT、B U、B Q；固定训练帧 '+', '.join(ids)+'。',max_height=7.6)
+            r.page('独立确认成本与核验');tab=[['阶段','新尝试','新Adam','终态点数','峰值allocated GiB']]
+            for arm,x in other_cost['model_costs'].items():tab.append([arm.replace('_',' '),x['attempted_this_process'],x['updates_this_process'],x['final_points'],num(x['peak_allocated_bytes']/2**30,3)])
+            r.table(tab,[1.1,1.2,1.2,1.69,1.8],9.5)
+            r.p(f"Tennis实际新增{other_cost['formal_attempts']}次尝试、{other_cost['optimizer_updates']}次Adam。共享coarse实际执行一次3000轮且末轮仍更新；U/Q各fine14000轮、13999次更新。每个独立逻辑路径为17000次尝试、16999次更新。GPU任务进程墙钟{other_cost['GPU_task_wall_seconds']:.3f}秒；CPU评价{other_cost['CPU_evaluation_seconds']:.3f}秒；训练点云三角化CPU墙钟{prep['triangulation_CPU_wall_seconds']:.3f}秒。点云选样独立进程未计时，标NA，不能当零成本。")
+            r.p(f"Tennis一次CPU核验覆盖{other_verify['rows']}指标行与{other_verify['paired_rows']}配对行，独立重算{other_verify['recomputed_PSNR']}项PSNR，最大差{other_verify['PSNR_max_absolute_error']:.3g}；SSIM/LPIPS仅独立核对聚合和差值。U/Q全部fine RGB批次完全相同，共同父状态与终态SHA通过核验。")
+            r.p(f"V8A加V8B的GPU任务墙钟合计{cost['GPU_task_hours']+other_cost['GPU_task_hours']:.6f}小时；两阶段各自硬预算为8小时，没有借用另一阶段余量。")
     r.p(review['next_decision']);r.p('本轮最多检验具体时序监督配置对图像质量的作用及取舍。不提供人/物实例身份保证，不输出真实接触几何，不消除单目深度歧义，也没有证明完全遮挡区域恢复正确。已有相似机制不自动否定研究价值；已复用内容如实归属，后续贡献应由实际适配、监督传递改造和统一协议质量收益支撑。')
     r.p('10月7日前收敛主问题；11月4日前冻结核心方法与主要实验，11月5至15日保留连续11个完整自然日集中写作。当前独立确认即使成立，也不是完整多场景论文基准。')
 

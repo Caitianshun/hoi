@@ -14,7 +14,7 @@ def run():
     qa=read(RUN/'protocol/document_final_QA.json');assert qa['all_pages_visually_checked'] and qa['document_sha256']==sha(qa['document'])
     assert read(RUN/'quality_decision.json')['status']=='completed' and read(RUN/'protocol/independent_verification.json')['status']=='pass'
     base=read(RUN/'protocol/initial_source_sync.json').get('base_commit','83103f6cff9483c4242fb2d0f8bc9457a2292522')
-    paths=[ROOT/'hoi_modules/projected_motion.py',ROOT/'hoi_modules/temporal_evidence.py',ROOT/'scripts/repo_sync.py',RUN/'configs/v8.json',*sorted((RUN/'code').glob('*.py'))];relative=[str(p.relative_to(ROOT)) for p in paths]
+    paths=[ROOT/'hoi_modules/projected_motion.py',ROOT/'hoi_modules/temporal_evidence.py',ROOT/'scripts/repo_sync.py',*sorted((RUN/'configs').glob('*.json')),*sorted((RUN/'code').glob('*.py'))];relative=[str(p.relative_to(ROOT)) for p in paths]
     tracked=set(subprocess.check_output(['git','ls-files','--',*relative],cwd=ROOT,text=True).splitlines());assert tracked==set(relative)
     patch=subprocess.check_output(['git','diff','--no-ext-diff','--binary',base,'--',*relative],cwd=ROOT);assert b'temporal_evidence.py' in patch and b'train_temporal.py' in patch;(RUN/'patch.diff').write_bytes(patch)
     save(RUN/'protocol/patch_identity.json',dict(base_commit=base,end_commit=subprocess.check_output(['git','rev-parse','HEAD'],cwd=ROOT,text=True).strip(),source_paths=relative,**identity(RUN/'patch.diff')))
