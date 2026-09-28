@@ -1,0 +1,21 @@
+{
+  "scope": "V8B independent Tennis U/Q confirmation",
+  "arms": ["B_U", "B_Q"],
+  "seed": 12345,
+  "batch_size": 2,
+  "GPU_seconds": 28800,
+  "attempt_budget": 45000,
+  "normal_attempts": 31000,
+  "normal_optimizer_updates": 30998,
+  "coarse_iterations": 3000,
+  "fine_iterations": 14000,
+  "U": "raw full-image per-image L1 + unchanged R",
+  "Q": "0.8 U_RGB + 0.2 (1 - upstream SSIM11) + unchanged R",
+  "temporal_mode": "off",
+  "M1": "off",
+  "automatic_restarts": false,
+  "physical_GPU": 1,
+  "scene_scale": "train-only selected pointcloud extent, same locked rule as Backpack",
+  "time": "original frame number normalized using this sequence's training endpoints",
+  "development_evaluation": "only after both complete fine14000 terminals frozen"
+}

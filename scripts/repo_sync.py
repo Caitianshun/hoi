@@ -17,6 +17,7 @@ SOURCE_ROOTS = ("scripts", "experiments", "research", "patches", "hoi_modules")
 ROOT_FILES = ("README.md", "AGENTS.md", ".gitignore", ".vscode/settings.json")
 EXTRA_CONFIG_FILES = (
     "experiments/temporal_evidence_v8_20260928/run01/configs/v8.json",
+    "experiments/temporal_evidence_v8_20260928/run01/configs/v8_tennis.json",
     "experiments/appearance_router_v7_20260928/run01/configs/v7.json",
     "experiments/gradient_scope_calibration_20260928/run01/configs/v6.json",
     "experiments/numerical_stability_calibration_20260927/run01/configs/v5.json",
