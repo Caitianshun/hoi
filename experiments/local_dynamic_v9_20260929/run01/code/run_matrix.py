@@ -88,9 +88,22 @@ def train():
     assert prediction['status']=='within_budget',prediction
     assert not (RUN/'protocol/finals.json').exists()
     for scene in config()['scenes']:
+        previous=scene_dir(scene)/'runs/BG/run.json'
+        if previous.exists():
+            r=read(previous)
+            assert r['status']=='completed' and r['completed_updates']==config()['schedule']['coarse_updates']
+            assert sha(r['checkpoint']['path'])==r['checkpoint']['sha256']
+            assert read(scene_dir(scene)/'protocol/fine0_equivalence.json')['status']=='passed'
+            continue
         job(scene+'_BG','train_scene.py',['--scene',scene,'--mode','BG'])
     for scene in config()['scenes']:
         for mode in config()['modes']:
+            previous=scene_dir(scene)/'runs'/mode/'run.json'
+            if previous.exists():
+                r=read(previous)
+                assert r['status']=='completed' and r['completed_updates']==config()['schedule']['fine_updates']
+                assert sha(r['checkpoint']['path'])==r['checkpoint']['sha256']
+                continue
             job(scene+'_'+mode,'train_scene.py',['--scene',scene,'--mode',mode])
     freeze()
 
