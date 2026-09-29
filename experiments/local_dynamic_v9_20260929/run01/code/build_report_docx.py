@@ -88,7 +88,11 @@ def run():
                 for k,kl in zip(KEYS,['PSNR','SSIM','LPIPS']):
                     d=s['paired'][pair]['retained'][region][k]
                     tab.append([pair,label,kl,num(d['mean'],6,True),num(d['median'],6,True),f"{d['win']} {d['tie']} {d['loss']}"])
-        r.table(tab,[.85,.65,.65,1.55,1.55,1.74],9)
+        table=r.table(tab,[.85,.65,.65,1.55,1.55,1.74],9)
+        # Keep the interpretation with all paired rows without reducing type.
+        for cell in table._tbl.iter(h.v3.qn('w:tcMar')):
+            for side in ('top','bottom'):
+                cell.find(h.v3.qn('w:'+side)).set(h.v3.qn('w:w'),'30')
         r.p('LPIPS负差表示改善。胜平负已统一为有利方向；同视频16帧不是16个独立场景。全部训练、15帧补充、历史U/Q配对与连续时间块在CSV/JSON中保留。')
 
     r.page('两个场景等权汇总')
@@ -145,8 +149,9 @@ def run():
             items=[x for fid in ids for x in figs if x['split']=='train' and x['frame_id']==fid and x['kind']=='full']
             r.image(r.sheet(scene+'_train_'+str(start),items,1,True),'固定训练帧 '+', '.join(ids)+'。',max_height=7.7)
 
-    r.page('保留配置 适用边界与下一步')
+    r.page('固定图中的实际重建表现')
     for p in visual['findings']:r.p(p)
+    r.page('适用边界与下一步')
     for p in review['limitations']:r.p(p)
     for p in review['next_step']:r.p(p)
     r.p('11月4日前冻结核心证据，11月5日至15日保留连续11个完整自然日用于写作、图表和审阅。后续扩展只围绕实测有效的配置；新的表示替代需要另立问题、对照和预算，本轮未自动授权权重细扫或新强先验。')
