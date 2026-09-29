@@ -3,6 +3,18 @@ from common import *
 import numpy as np
 
 
+def training_jobs(jobs, scene, mode):
+    selected=[]
+    for job in jobs:
+        command=job['command']
+        if not any(Path(x).name=='train_scene.py' for x in command):continue
+        if '--scene' not in command or '--mode' not in command:continue
+        if command[command.index('--scene')+1]==scene and command[command.index('--mode')+1]==mode:
+            selected.append(job)
+    assert selected, (scene, mode)
+    return selected
+
+
 def run():
     assert read(RUN/'protocol/independent_verification.json')['status']=='passed'
     jobs=[json.loads(x) for x in (RUN/'protocol/GPU_jobs.jsonl').read_text().splitlines()]
@@ -10,12 +22,23 @@ def run():
     branches=[];initializations={}
     for scene in config()['scenes']:
         sd=scene_dir(scene);initializations[scene]=read(sd/'protocol/initialization.json')
-        bg=read(sd/'runs/BG/run.json')
+        bg_seconds=sum(j['wall_seconds'] for j in training_jobs(jobs,scene,'BG'))
         for mode in ['BG','Q0','S','SL']:
             out=sd/'runs'/mode;r=read(out/'run.json')
             density=[json.loads(x) for x in (out/'density_events.jsonl').read_text().splitlines()] if (out/'density_events.jsonl').exists() else []
-            branches.append(dict(scene=scene,mode=mode,**{k:r[k] for k in ['completed_updates','final_points','variable_points','peak_points','seconds','peak_allocated_bytes','peak_reserved_bytes']},
-                logical_path_seconds=r['seconds']+(bg['seconds'] if mode!='BG' else 0),
+            attempts=training_jobs(jobs,scene,mode)
+            seconds=sum(j['wall_seconds'] for j in attempts)
+            complete_memory_measurement=len(attempts)==1 and attempts[0]['returncode']==0
+            metric_rows=[json.loads(x) for x in (out/'training_metrics.jsonl').read_text().splitlines()]
+            branches.append(dict(scene=scene,mode=mode,**{k:r[k] for k in ['completed_updates','final_points','variable_points']},
+                peak_points=max([r['peak_points']]+[x['points'] for x in metric_rows]),
+                seconds=seconds,final_process_engine_seconds=r['seconds'],process_attempts=attempts,
+                peak_allocated_bytes=r['peak_allocated_bytes'] if complete_memory_measurement else None,
+                peak_reserved_bytes=r['peak_reserved_bytes'] if complete_memory_measurement else None,
+                observed_final_process_peak_allocated_bytes=r['peak_allocated_bytes'],
+                observed_final_process_peak_reserved_bytes=r['peak_reserved_bytes'],
+                peak_memory_scope='whole job' if complete_memory_measurement else 'whole-job peak unavailable; final process only is a lower bound',
+                logical_path_seconds=seconds+(bg_seconds if mode!='BG' else 0),
                 added_points=sum(max(0,x['points_after']-x['points_before']) for x in density),
                 removed_points=sum(max(0,x['points_before']-x['points_after']) for x in density),checkpoint=r['checkpoint']))
     costs=dict(GPU_task_seconds=sum(x['wall_seconds'] for x in jobs),GPU_task_hours=sum(x['wall_seconds'] for x in jobs)/3600,
