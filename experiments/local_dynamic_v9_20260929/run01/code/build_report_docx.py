@@ -111,12 +111,15 @@ def run():
 
     r.page('预算 点数与复算范围')
     v=cost['verification']
-    r.p(f"正式有效更新{v['formal_updates']}，尝试{v['formal_attempts']}，重放{v['replay_attempts']}。GPU任务进程累计{num(cost['GPU_task_hours'],6)}小时，包含加载、保存、失败和最终渲染，不是CUDA核计时；CPU任务累计{num(cost['CPU_job_seconds'],3)}秒。仅使用物理GPU1 RTX3090。")
+    r.p(f"正式有效日程更新{v['formal_updates']}，尝试{v['formal_attempts']}，尾段重放尝试{v['replay_attempts']}。GPU任务进程累计{num(cost['GPU_task_hours'],6)}小时，包含加载、保存、失败和最终渲染，不是CUDA核计时；CPU任务累计{num(cost['CPU_job_seconds'],3)}秒。仅使用物理GPU1 RTX3090。")
+    accounting=v['recovery_accounting']
+    r.p(f"逐步日志确认执行Adam共{accounting['confirmed_logged_Adam_updates_including_replay']}次（含重放），另有{accounting['unlogged_attempt_outcomes']}次尝试没有更新完成记录，其优化器执行情况未知。完整状态恢复共{accounting['recovery_count']}次；有效日程、重放及崩溃尝试分别计数。")
     tab=[['场景','设置','终态点数','可变点数','进程秒','峰值分配 GiB']]
     for b in cost['branches']:
         tab.append([b['scene'],b['mode'],b['final_points'],b['variable_points'],num(b['seconds'],2),
             'NA' if b['peak_allocated_bytes'] is None else num(b['peak_allocated_bytes']/(1<<30),3)])
     r.table(tab,[1.05,.65,1.25,1.25,1.4,1.39],9)
+    r.p('分支进程秒累计该分支所有训练进程（含失败与恢复），共享预热另列，未把恢复尾段耗时冒充全程。峰值分配为PyTorch记录的显存分配峰值；NA表示崩溃前峰值未保存，无法完整测得，不以恢复尾段峰值替代全程峰值。')
     r.p(f"独立核验覆盖{verification['rows']}指标行与{verification['paired_rows']}配对行，重算{verification['PSNR_recomputed']}个新PSNR，最大差{verification['max_PSNR_difference']:.3g}。SSIM和LPIPS沿用原评价执行，独立核验其聚合与配对，未宣称第二实现重算。")
     r.p('训练目标为raw RGB上的0.8 L1加0.2乘以1−SSIM11，原plane/time正则不变。评价先裁剪RGB到[0,1]，PSNR为逐帧dB宏平均；SSIM用7×7非高斯窗口和样本协方差；LPIPS用AlexNet 0.1空间图、normalize=True并按完整区域平均。pooled与raw为补充值。')
     r.p('反馈ZIP包含源码、配置、逐帧指标、配对差、固定图、状态与身份索引。完整模型、原始RGB、全部浮点渲染和大缓存留在训练机，路径、大小和SHA256见model_index及输入清单；该ZIP不是自包含重训数据包。')

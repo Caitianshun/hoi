@@ -1,6 +1,32 @@
 """Independent CSV arithmetic, terminal/source identities and budget accounting."""
 from common import *
 import csv,cv2,numpy as np,torch
+from collections import Counter
+
+
+def update_accounting(formal):
+    branches=[]
+    for scene in config()['scenes']:
+        for mode in ['BG','Q0','S','SL']:
+            out=scene_dir(scene)/'runs'/mode
+            target=config()['schedule']['coarse_updates' if mode=='BG' else 'fine_updates']
+            attempted=Counter(r['iteration'] for r in formal if r['scene']==scene and r['mode']==mode)
+            logged=Counter(json.loads(line)['completed_updates'] for line in (out/'training_metrics.jsonl').read_text().splitlines())
+            assert set(attempted)==set(logged)==set(range(1,target+1)), (scene,mode)
+            assert all(logged[i]<=attempted[i]<=2 for i in attempted), (scene,mode)
+            replay=sum(attempted.values())-target
+            receipt=read(out/'resume_receipt.json') if (out/'resume_receipt.json').exists() else None
+            assert replay==(receipt['replay_updates'] if receipt else 0)
+            assert replay<=config()['budgets']['replay_updates_per_job']
+            branches.append(dict(scene=scene,mode=mode,effective_updates=target,
+                attempts=sum(attempted.values()),confirmed_logged_Adam_updates=sum(logged.values()),
+                unlogged_attempt_outcomes=sum(attempted.values())-sum(logged.values()),
+                replay_attempts=replay,recovery_count=int(receipt is not None),receipt=receipt))
+    return dict(branches=branches,
+        confirmed_logged_Adam_updates_including_replay=sum(x['confirmed_logged_Adam_updates'] for x in branches),
+        unlogged_attempt_outcomes=sum(x['unlogged_attempt_outcomes'] for x in branches),
+        recovery_count=sum(x['recovery_count'] for x in branches),
+        interpretation='Effective schedule counts each update once. Logs confirm completed Adam executions including replay. An unlogged crash attempt has unknown optimizer outcome; it is not asserted to have skipped Adam.')
 
 
 def run():
@@ -66,6 +92,7 @@ def run():
     actual_diagnostic_updates=read(RUN/'protocol/module_acceptance.json')['diagnostic_Adam_updates']
     assert completed==config()['budgets']['normal_formal_updates']
     assert completed<=len(formal)<=config()['budgets']['formal_attempts']
+    recovery_accounting=update_accounting(formal)
     assert actual_diagnostic_updates<=config()['budgets']['integrated_Adam_updates'] and len(extra)<=config()['budgets']['extra_no_update_backwards']
     gpu=[json.loads(x) for x in (RUN/'protocol/GPU_jobs.jsonl').read_text().splitlines()]
     assert sum(x['wall_seconds'] for x in gpu)<=config()['budgets']['GPU_seconds']
@@ -75,6 +102,7 @@ def run():
         max_pair_difference=max_pair,max_aggregate_difference=max_aggregate,formal_updates=completed,
         formal_attempts=len(formal),replay_attempts=len(formal)-completed,diagnostic_attempts=len(diagnostic),
         diagnostic_Adam_updates=actual_diagnostic_updates,
+        recovery_accounting=recovery_accounting,
         no_update_backwards=len(extra),SSIM_LPIPS_scope='Original evaluator executed once, independent aggregation and pairing only',
         terminal_identities_and_training_source_hashes=True))
 
