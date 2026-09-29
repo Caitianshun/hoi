@@ -19,6 +19,7 @@ def run():
     assert read(RUN/'protocol/independent_verification.json')['status']=='passed'
     jobs=[json.loads(x) for x in (RUN/'protocol/GPU_jobs.jsonl').read_text().splitlines()]
     cpu=[json.loads(x) for x in (RUN/'protocol/CPU_jobs.jsonl').read_text().splitlines()]
+    cpu=[x for x in cpu if x['label'] in ['all_terminal_evaluation','independent_verification']]
     branches=[];initializations={}
     for scene in config()['scenes']:
         sd=scene_dir(scene);initializations[scene]=read(sd/'protocol/initialization.json')
@@ -42,7 +43,7 @@ def run():
                 added_points=sum(max(0,x['points_after']-x['points_before']) for x in density),
                 removed_points=sum(max(0,x['points_before']-x['points_after']) for x in density),checkpoint=r['checkpoint']))
     costs=dict(GPU_task_seconds=sum(x['wall_seconds'] for x in jobs),GPU_task_hours=sum(x['wall_seconds'] for x in jobs)/3600,
-        CPU_job_seconds=sum(x['wall_seconds'] for x in cpu),GPU_jobs=jobs,CPU_jobs=cpu,branches=branches,
+        CPU_job_seconds=sum(x['wall_seconds'] for x in cpu),CPU_scope='Evaluation and independent verification only; report preparation, authoring and interactive QA excluded',GPU_jobs=jobs,CPU_jobs=cpu,branches=branches,
         counting='GPU process wall time including load/save, not CUDA kernel time. Each shared BG parent counted once in actual total, included per logical path separately.',
         verification=read(RUN/'protocol/independent_verification.json'))
     save_json(RUN/'costs.json',costs)
