@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """CPU check that actual saved Adam groups follow the official LR schedule.
 
-The checkpoint stores the LR used by the next update. Stage 1 updates LR
+The checkpoint stores the actual Adam group LR at save time. Stage 1 updates LR
 before Adam.step; stages 2/3 update it after Adam.step. In each case, after
 g completed updates the saved schedule argument must be g-1.
 """
