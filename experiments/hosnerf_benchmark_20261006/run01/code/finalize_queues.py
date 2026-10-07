@@ -97,7 +97,7 @@ def unit_identity(name):
     if not scripts or not values.get('InvocationID'):
         raise RuntimeError('Service entry/source identity is missing')
     return dict(unit=UNITS[name], pid=pid, start_ticks=start_ticks(pid), boot_id=boot(),
-                invocation_id=values['InvocationID'], exec_start=values['ExecStart'],
+                invocation_id=values['InvocationID'], exec_start=values['ExecStart'].split(' ; ignore_errors=', 1)[0],
                 entry_sources=scripts)
 
 
@@ -299,12 +299,20 @@ def scene_endpoint(run, scene, manifest):
 
 
 def finalize(run):
-    link = tennis_source_link(run)
+    try:
+        link = tennis_source_link(run)
+    except Exception:
+        link = dict(status='source_index_rejected', error=traceback.format_exc())
     manifest = read(run / 'protocol/dataset_manifest.json')
-    terminals = [child_terminal(run, name) for name in OWNERS]
+    terminals = []
+    for name in OWNERS:
+        try:
+            terminals.append(child_terminal(run, name))
+        except Exception:
+            terminals.append(dict(name=name, accepted_success=False, error=traceback.format_exc()))
     scenes = [scene_endpoint(run, scene, manifest) for scene in SCENES]
     count = sum(item['verified'] for item in scenes)
-    good = count == 6 and all(item['accepted_success'] for item in terminals)
+    good = count == 6 and all(item['accepted_success'] for item in terminals) and link['status'] == 'read_only_source_index_link'
     return dict(status='completed_all_six_verified' if good else 'terminal_incomplete_or_failed',
                 completed_scenes=count, required_scenes=6, child_terminals=terminals,
                 scenes=scenes, tennis_source_index=link, gpu_tasks_launched=0,
