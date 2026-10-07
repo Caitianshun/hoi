@@ -18,6 +18,7 @@ import os
 from pathlib import Path
 import select
 import shutil
+import struct
 import subprocess
 import sys
 import time
@@ -306,12 +307,40 @@ class Worker:
                 raise OSError(ctypes.get_errno(), f'inotify_add_watch failed: {parent}')
             # Install the watch before rechecking, so a creation/removal between
             # the caller's decision and registration cannot lose the wake-up.
-            ready = not Path(path).exists() if until_absent else Path(path).exists()
-            if ready:
+            path = Path(path)
+            def ready():
+                if until_absent:
+                    return not path.exists()
+                if not path.is_file():
+                    return False
+                if path.suffix == '.json':
+                    try:
+                        read(path)
+                    except (json.JSONDecodeError, FileNotFoundError):
+                        return False
+                return True
+            if ready():
                 return
-            self.deadline_check()
-            select.select([descriptor], [], [], max(0, self.deadline - time.time()))
-            self.deadline_check()
+            child_name = path.relative_to(parent).parts[0]
+            while True:
+                self.deadline_check()
+                available, _, _ = select.select([descriptor], [], [], max(0, self.deadline - time.time()))
+                self.deadline_check()
+                if not available:
+                    continue
+                events = os.read(descriptor, 65536)
+                offset = 0
+                while offset < len(events):
+                    _, mask, _, length = struct.unpack_from('iIII', events, offset)
+                    name = os.fsdecode(events[offset+16:offset+16+length].split(b'\0', 1)[0])
+                    offset += 16 + length
+                    if mask & 0x00008C00:  # Watch invalidated or parent moved/deleted.
+                        return
+                    if name == child_name:
+                        if parent != path.parent and mask & 0x40000000:
+                            return  # A missing ancestor directory was created.
+                        if mask & 0x000002C8:
+                            return  # Target close-write, move or deletion.
         finally:
             os.close(descriptor)
 
@@ -326,7 +355,11 @@ class Worker:
             if not receipt.is_file():
                 missing.append(receipt)
                 continue
-            data = read(receipt)
+            try:
+                data = read(receipt)
+            except json.JSONDecodeError:
+                missing.append(receipt)
+                continue
             required = dict(status='completed_training', method=arm, repeat='2', updates=6000,
                             suffix_endpoint=6000, training_rgb_forwards=6000, adam_calls=12000,
                             physical_gpu='1', topology_unchanged=True)
