@@ -64,6 +64,7 @@ def main(a):
     target = scene/'images_flow'
     target.mkdir(exist_ok=True)
     status_path = run/'protocol'/f'{a.scene}_flow.json'
+    vendor = root/'third_party/MoSca/lib_prior/optical_flow/RAFT'
     identity = dict(scene=a.scene, train_ids=[p.stem for p in train], test_ids=[paths[i].stem for i in sorted(test)],
                     checkpoint=str(a.checkpoint.resolve()), checkpoint_sha256=sha(a.checkpoint),
                     inference_long_edge=a.long_edge, iters=a.iters,
@@ -71,12 +72,31 @@ def main(a):
                     coordinate='original RGB pixel x/y displacement; current retained train -> previous retained train',
                     first_frame='zero displacement and zero validity; no previous observation',
                     heldout_rgb_read=False, mask_source='RAFT consistency only',
-                    upstream='MoSca vendored RAFT / Princeton RAFT', torch=torch.__version__)
+                    upstream='MoSca vendored RAFT / Princeton RAFT', torch=torch.__version__,
+                    source_sha256=sha(Path(__file__)),
+                    vendor_sha256={str(p.relative_to(vendor)):sha(p) for p in sorted(vendor.rglob('*.py'))})
     identity_sha = hashlib.sha256(json.dumps(identity, sort_keys=True).encode()).hexdigest()
     old = json.loads(status_path.read_text()) if status_path.exists() else None
     if old and old['identity_sha256'] != identity_sha:
         raise RuntimeError('Existing flow protocol identity differs; use a new directory')
     done = {r['current']: r for r in old.get('pairs', [])} if old else {}
+    train_by_id = {p.stem: (i,p) for i,p in enumerate(train)}
+    for current_id, row in done.items():
+        if current_id not in train_by_id:
+            raise RuntimeError(f'Unexpected flow source {current_id}')
+        i,current = train_by_id[current_id]
+        previous = train[i-1] if i else None
+        receipt = target/(current_id+'_bwd.npz')
+        assert row['previous'] == (previous.stem if previous else None)
+        assert row['source_rgb_sha256'] == sha(current)
+        assert row['previous_rgb_sha256'] == (sha(previous) if previous else None)
+        if not receipt.exists() or row['cache_sha256'] != sha(receipt):
+            raise RuntimeError(f'Flow cache integrity failed: {receipt}')
+        with np.load(receipt) as cached:
+            assert list(cached['flow'].shape) == row['shape']
+            assert cached['mask'].shape == tuple(row['shape'][:2])
+            assert np.isfinite(cached['flow']).all() and np.isfinite(cached['mask']).all()
+            assert not np.any(cached['mask'] < 0) and not np.any(cached['mask'] > 1)
     expected = train[:a.limit] if a.limit else train
     pending = [p for p in expected if p.stem not in done]
     if not pending:

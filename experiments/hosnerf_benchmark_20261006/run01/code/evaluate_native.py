@@ -74,8 +74,18 @@ def main(args):
     if (args.output / "metrics.json").exists():
         prior = json.loads((args.output / "metrics.json").read_text())
         if prior.get("status") == "completed":
+            if prior.get("source_kind") != args.source_kind or prior.get("scene") != args.scene:
+                raise RuntimeError("Completed evaluation has a different scene/source identity")
             if prior["identity"]["checkpoint_sha256"] != sha256(args.checkpoint):
                 raise RuntimeError("Completed evaluation exists for a different checkpoint")
+            if prior.get("frames") != 16 or len(prior.get("per_frame", [])) != 16 or len(prior.get("artifacts", [])) != 48:
+                raise RuntimeError("Completed evaluation has incomplete frame/artifact records")
+            for resource in prior["identity"]["test_resources"]:
+                if sha256(args.data_root / args.scene / resource["path"]) != resource["sha256"]:
+                    raise RuntimeError("Completed evaluation test input identity changed")
+            for artifact in prior["artifacts"]:
+                if sha256(args.output / artifact["path"]) != artifact["sha256"]:
+                    raise RuntimeError("Completed evaluation output missing or changed")
             print("HOS_EVALUATION_ALREADY_COMPLETE", args.output, flush=True)
             return
     data = args.data_root / args.scene

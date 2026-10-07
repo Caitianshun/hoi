@@ -82,6 +82,8 @@ def arguments() -> argparse.Namespace:
         if value is not None:
             setattr(args, name, value.expanduser().resolve())
     args.max_steps = args.max_steps if args.max_steps is not None else STAGES[args.stage][2]
+    if args.smoke and not args.stop_after_updates and args.max_steps == STAGES[args.stage][2]:
+        args.stop_after_updates = 2
     if args.max_steps <= 0 or not 1 <= args.checkpoint_every <= 2000:
         parser.error("max-steps must be positive and checkpoint-every must be within 1..2000")
     if args.max_steps != STAGES[args.stage][2] and not args.smoke:
@@ -187,6 +189,10 @@ def load_runtime(args):
     torch.load = legacy_load
     torch.set_num_threads(args.threads)
     pl.seed_everything(args.seed, workers=True)
+    import pdb
+    def fail_debug_trap(*unused, **keywords):
+        raise RuntimeError("The official code reached a debugger trap; aborting unattended execution")
+    pdb.set_trace = fail_debug_trap
 
     # Register only the gin entry-point signature; its obsolete DDP run.py is
     # never imported. Stage 1's original optimizer queries run.max_steps.
@@ -294,8 +300,18 @@ def input_identity(args, source):
         absent = [name for name in train_ids if not (scene / "images_flow" / (name + "_bwd.npz")).is_file()]
         if absent:
             raise FileNotFoundError(f"Missing prepared train-only backward fields: {absent[:5]}")
+        flow_manifest = Path(__file__).resolve().parents[1] / "protocol" / (args.scene + "_flow.json")
+        flow = json.loads(flow_manifest.read_text())
+        if flow["status"] != "complete" or flow["identity"]["train_ids"] != train_ids or flow["identity"]["test_ids"] != test_ids:
+            raise RuntimeError("A complete matching frozen training-only flow manifest is required")
+        if flow["identity"]["heldout_rgb_read"] or len(flow["pairs"]) != len(train_ids):
+            raise RuntimeError("Flow cache violates the no-heldout-RGB protocol or is incomplete")
+        import numpy as np
+        with np.load(scene / "images_flow" / (train_ids[0] + "_bwd.npz")) as first:
+            if np.any(first["mask"] != 0):
+                raise RuntimeError("The first retained train frame must have an all-zero flow validity mask")
     revision = subprocess.check_output(["git", "-C", str(args.official), "rev-parse", "HEAD"], text=True).strip()
-    return dict(stage=args.stage, scene=args.scene, seed=args.seed,
+    identity = dict(stage=args.stage, scene=args.scene, seed=args.seed,
                 data_root=str(args.data_root), train_ids=train_ids, test_ids=test_ids,
                 uniform_test_rule="sorted PNG indices arange(N)[::floor(N/16)][:16]",
                 metadata_sha256=metadata, official_revision=revision,
@@ -311,7 +327,12 @@ def input_identity(args, source):
                              "torch.load full checkpoint compatibility", "NumPy bool dtype alias",
                              "single-device sampler rank", "workers=0 loader compatibility",
                              "disable progress/all-frame/freeview/tpose evaluation",
-                             "periodic and final full-state checkpoints; final-only 16-frame evaluation"])
+                             "periodic and final full-state checkpoints; final-only 16-frame evaluation",
+                             "fail instead of entering an unattended native debugger trap"])
+    identity["training_script_sha256"] = sha256(Path(__file__).resolve())
+    identity["benchmark_config_sha256"] = sha256(Path(__file__).resolve().parents[1] / "configs/benchmark.json")
+    identity["flow_manifest_sha256"] = sha256(flow_manifest) if args.stage in [2, 3] else None
+    return identity
 
 
 def construct_training(args, runtime):
@@ -348,6 +369,12 @@ def construct_training(args, runtime):
                 if checkpoint is None:
                     raise ValueError(f"Stage 3 requires its own completed {name} checkpoint")
                 payload = torch.load(checkpoint, map_location="cpu", weights_only=False)
+                parent = payload.get("benchmark_identity")
+                expected_stage = 2 if name == "human" else 1
+                if parent is None or parent["stage"] != expected_stage or parent["scene"] != args.scene or parent["seed"] != args.seed:
+                    raise RuntimeError(f"Stage 3 requires its own native {name} checkpoint from the same scene/seed")
+                if not args.smoke and (not parent["formal"] or payload["global_step"] != STAGES[expected_stage][2]):
+                    raise RuntimeError(f"Formal stage 3 requires the completed official-budget {name} stage")
                 expected_prefix = "human." if name == "human" else "model."
                 selected = {key: value for key, value in payload["state_dict"].items() if key.startswith(expected_prefix)}
                 target = {key: value for key, value in model.state_dict().items() if key.startswith(expected_prefix)}
@@ -405,6 +432,7 @@ def evaluate_final(args, runtime, model, trainer, identity):
 
 def main():
     args = arguments()
+    globals()["_output_directory"] = args.output
     args.output.mkdir(parents=True, exist_ok=True)
     if (args.output / "final.ckpt").exists() and not args.resume:
         raise FileExistsError("An existing result requires explicit --resume or a new --output directory")
@@ -467,7 +495,7 @@ def main():
             previous = checkpoint.get("benchmark_identity")
             if previous is None:
                 raise RuntimeError("Resume requires this harness's full training checkpoint")
-            for key in ["stage", "scene", "seed", "train_ids", "test_ids", "metadata_sha256", "official_revision", "official_model_sha256", "formal", "max_steps"]:
+            for key in ["stage", "scene", "seed", "train_ids", "test_ids", "metadata_sha256", "official_revision", "official_model_sha256", "formal", "max_steps", "training_script_sha256", "benchmark_config_sha256", "flow_manifest_sha256", "chunk", "netchunk", "workers"]:
                 if previous[key] != identity[key]:
                     raise RuntimeError(f"Resume identity mismatch: {key}")
             rng = checkpoint["benchmark_rng"]
@@ -537,7 +565,7 @@ if __name__ == "__main__":
         # Preserve a machine-readable failure even when SSH log output is lost.
         try:
             index = sys.argv.index("--output")
-            directory = Path(sys.argv[index+1]).expanduser().resolve()
+            directory = globals().get("_output_directory", Path(sys.argv[index+1]).expanduser().resolve())
             directory.mkdir(parents=True, exist_ok=True)
             write_json(directory / "status.json", dict(status="failed", error=repr(error),
                        traceback=traceback.format_exc()))
