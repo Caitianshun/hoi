@@ -574,9 +574,10 @@ class Worker:
                 receipt = directory / 'receipt.json'
                 current = int(read(receipt)['global_step']) if receipt.exists() else 0
                 last = directory / 'last.ckpt'
-                if current and current != last_audited:
-                    self.audit(last, stage, True, current, directory, f'formal_stage{stage}_g{current:09d}')
-                    last_audited = current
+                if current:
+                    if current != last_audited:
+                        self.audit(last, stage, True, current, directory, f'formal_stage{stage}_g{current:09d}')
+                        last_audited = current
                 else:
                     assert not last.exists() and not (directory / 'final.ckpt').exists(), 'Formal training must start from scratch'
                 if current == STEPS[stage]:
