@@ -89,7 +89,7 @@ def run():
     cpu_calls=read(RUN/'protocol/support_cpu_acceptance.json')['actual_CPU_Adam_updates']
     assert calls+cpu_calls<=96
     receipt=dict(status='passed',checks=checks,runs=records,actual_GPU_Adam_updates=calls,actual_CPU_Adam_updates=cpu_calls,
-        actual_Adam_updates=calls+cpu_calls,extra_no_update_backwards=0,seconds=time.monotonic()-start,
+        actual_Adam_updates=calls+cpu_calls,extra_no_update_backwards=read(RUN/'protocol/support_cpu_acceptance.json')['extra_CPU_backward_without_Adam'],seconds=time.monotonic()-start,
         short_quality_evaluated=False,scientific_source=identity(RUN/'protocol/source_identity.json'))
     save_json(RUN/'protocol/module_acceptance.json',receipt)
     save_json(RUN/'protocol/external_GPU_costs.json',dict(GPU_seconds=receipt['seconds'],scope='integrated engineering acceptance incl parent forwards'))

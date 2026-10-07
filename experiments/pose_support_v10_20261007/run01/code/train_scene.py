@@ -77,7 +77,7 @@ def engine(scene,arm,target,output,purpose='formal',resume=None,probe=None):
                 optimizer.zero_grad(set_to_none=True)
                 if support is not None:
                     event=support.after_adam_topology(optimizer,k)
-                    if event is not None:append_json(output/'density_events.jsonl',event)
+                    if event is not None:append_json(output/'density_events.jsonl',dict(event,completed_updates=k))
                     support.set_active_sh_after_update(k);peak_support=max(peak_support,len(support.u))
                 assert len(base._xyz)==nbase
             completed=k
