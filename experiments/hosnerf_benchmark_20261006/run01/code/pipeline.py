@@ -168,6 +168,10 @@ def main(a):
                                       note='Three isolated 8-update native stages; no benchmark metrics'))
         write(RUN/'pipeline.json',dict(status='preflight_passed',finished_unix=time.time()))
         return
+    if (RUN/'protocol/HOLD_FORMAL.json').exists():
+        write(RUN/'pipeline.json',dict(status='formal_dispatch_held',
+              hold=read(RUN/'protocol/HOLD_FORMAL.json'), updated_unix=time.time()))
+        return
     if not (RUN/'preflight.json').exists() or read(RUN/'preflight.json')['status']!='passed':
         raise RuntimeError('Three-stage preflight is required before formal training')
     cutoff=DEADLINE
@@ -180,6 +184,10 @@ def main(a):
         for stage in (1,2,3):
             output=RUN/'runs/formal'/scene/f'stage{stage}'
             while True:
+                if (RUN/'protocol/HOLD_FORMAL.json').exists():
+                    write(RUN/'pipeline.json',dict(status='formal_dispatch_held',
+                          hold=read(RUN/'protocol/HOLD_FORMAL.json'), updated_unix=time.time()))
+                    return
                 if time.time()>=cutoff:
                     write(RUN/'pipeline.json',dict(status='stopped_at_freeze_deadline',scene=scene,stage=stage,updated_unix=time.time()))
                     return
