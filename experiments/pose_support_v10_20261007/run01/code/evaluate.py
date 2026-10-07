@@ -129,7 +129,7 @@ def historical_rows(scene):
 
 
 def freeze_gate():
-    path = RUN / "protocol/finals.json"; freeze = read(path)
+    path = RUN / "protocol/terminal_freeze.json"; freeze = read(path)
     assert freeze["status"] == "all_six_terminals_frozen" and len(freeze["runs"]) == 6
     assert {(r["scene"], r.get("arm", r.get("mode"))) for r in freeze["runs"]} == {(s, a) for s in config()["scenes"] for a in config()["arms"]}
     for asset in freeze["assets"]: checked(asset)

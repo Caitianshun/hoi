@@ -225,7 +225,7 @@ def train():
     assert acceptance.get("diagnostic_Adam_updates", acceptance.get("actual_Adam_updates", 0)) <= config()["budgets"]["integrated_Adam_updates"]
     assert acceptance.get("extra_no_update_backwards", 0) <= config()["budgets"]["extra_no_update_backwards"]
     assert read(RUN / "protocol/cost_prediction.json")["status"] == "within_budget"
-    if (RUN / "protocol/finals.json").exists(): verify_freeze(); return
+    if (RUN / "protocol/terminal_freeze.json").exists(): verify_freeze(); return
     for scene in config()["scenes"]:
         for arm in config()["arms"]:
             if completed_run(scene, arm): continue
@@ -257,13 +257,13 @@ def freeze():
             assets += [result["checkpoint"], identity(RUN / "scenes" / scene / "runs" / arm / "run.json")]
             effective = RUN / "scenes" / scene / "runs" / arm / "effective_config.json"
             if effective.exists(): assets.append(identity(effective))
-    save(RUN / "protocol/finals.json", dict(status="all_six_terminals_frozen", runs=runs,
+    save(RUN / "protocol/terminal_freeze.json", dict(status="all_six_terminals_frozen", runs=runs,
         assets=assets, freeze_time_unix=time.time(), development_evaluation_started=False,
         parent_selection="Backpack V9 Q0; Tennis V8 Q; previously developed scene-level selection"))
 
 
 def verify_freeze():
-    value = read(RUN / "protocol/finals.json")
+    value = read(RUN / "protocol/terminal_freeze.json")
     assert value["status"] == "all_six_terminals_frozen" and len(value["runs"]) == 6
     assert {(r["scene"], r.get("arm", r.get("mode"))) for r in value["runs"]} == {(s, a) for s in config()["scenes"] for a in config()["arms"]}
     for asset in value["assets"]: bound(asset)
@@ -275,13 +275,13 @@ def evaluate():
     rendered = RUN / "protocol/all_rendered.json"
     if rendered.exists():
         value = read(rendered); assert value["status"] == "completed"
-        assert value["freeze"]["sha256"] == identity(RUN / "protocol/finals.json")["sha256"]
+        assert value["freeze"]["sha256"] == identity(RUN / "protocol/terminal_freeze.json")["sha256"]
         for asset in value.get("assets", []): bound(asset)
     else:
         result = job("all_terminal_render", "render_scene.py", ["--all"])
         assert result["returncode"] == 0
         manifests = [identity(RUN / "evaluation" / scene / arm / "manifest.json") for scene in config()["scenes"] for arm in ["PARENT", *config()["arms"]]]
-        save(rendered, dict(status="completed", freeze=identity(RUN / "protocol/finals.json"), assets=manifests))
+        save(rendered, dict(status="completed", freeze=identity(RUN / "protocol/terminal_freeze.json"), assets=manifests))
     if not (RUN / "evaluation_summary.json").exists():
         assert job("all_terminal_evaluation", "evaluate.py", gpu=False)["returncode"] == 0
     if not (RUN / "protocol/independent_verification.json").exists():
