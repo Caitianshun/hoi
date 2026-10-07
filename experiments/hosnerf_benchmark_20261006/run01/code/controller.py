@@ -12,6 +12,7 @@ import fcntl
 import json
 import os
 from pathlib import Path
+import re
 import select
 import subprocess
 import sys
@@ -95,7 +96,9 @@ def main(args):
                       updated_unix=time.time()))
     if args.preflight_pid:
         wait_exit(args.preflight_pid)
-    if not (RUN / "preflight.json").exists() or read(RUN / "preflight.json")["status"] != "passed":
+    suffix = "_" + args.acceptance_tag if args.acceptance_tag else ""
+    preflight_path = RUN / ("preflight" + suffix + ".json")
+    if not preflight_path.exists() or read(preflight_path)["status"] != "passed":
         raise RuntimeError("The isolated three-stage preflight did not pass; formal training was not started")
     pipeline.DEADLINE = datetime.fromisoformat(args.cutoff).timestamp()
     # Keep the training queue exclusive during the isolated recovery checks.
@@ -103,32 +106,51 @@ def main(args):
         fcntl.flock(queue_lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         before, after = [], []
         for stage in (1, 2, 3):
-            source = RUN / "runs/smoke/Backpack" / f"stage{stage}" / "last.ckpt"
+            source = RUN / ("runs/smoke" + suffix + "/Backpack") / f"stage{stage}" / "last.ckpt"
             before.append(audit(source, 8))
-            output = RUN / "runs/smoke_resume/Backpack" / f"stage{stage}"
+            subprocess.run([str(PYTHON), str(CODE / "audit_native_lr.py"), "--checkpoint", str(source),
+                            "--output", str(RUN / f"protocol/stage{stage}_fresh_lr{suffix}.json")], check=True)
+            output = RUN / ("runs/smoke_resume" + suffix + "/Backpack") / f"stage{stage}"
             output.mkdir(parents=True, exist_ok=True)
             done = output / "receipt.json"
             if done.exists() and read(done).get("global_step") == 10:
                 after.append(audit(output / "last.ckpt", 10))
-                continue
-            if (output / "last.ckpt").exists():
+            elif (output / "last.ckpt").exists():
                 raise RuntimeError(f"Incomplete recovery check requires inspection: {output}")
-            command = [str(PYTHON), "-u", str(CODE / "train_native.py"), "--stage", str(stage),
+            else:
+                command = [str(PYTHON), "-u", str(CODE / "train_native.py"), "--stage", str(stage),
                        "--scene", "Backpack", "--data-root", str(RUN / "data"),
                        "--output", str(output), "--max-steps", str(pipeline.STEPS[stage]),
                        "--checkpoint-every", "2000", "--stop-after-updates", "2",
                        "--workers", "0", "--no-evaluate", "--smoke", "--resume", str(source),
                        "--deadline", str(pipeline.DEADLINE)]
-            write(state, dict(status="recovery_check", stage=stage, updated_unix=time.time()))
-            pipeline.task(command, f"Backpack_stage{stage}_resume_check")
-            receipt = read(done)
-            if receipt["segment_updates"] != 2 or receipt["global_step"] != 10 or receipt["formal"]:
-                raise RuntimeError(f"Recovery did not advance exactly two isolated updates: {receipt}")
-            after.append(audit(output / "last.ckpt", 10))
-        write(RUN / "protocol/recovery_acceptance.json", dict(status="passed", before=before, after=after,
+                write(state, dict(status="recovery_check", stage=stage, acceptance_tag=args.acceptance_tag, updated_unix=time.time()))
+                pipeline.task(command, f"Backpack_stage{stage}_resume_check{suffix}")
+                receipt = read(done)
+                if receipt["segment_updates"] != 2 or receipt["global_step"] != 10 or receipt["formal"]:
+                    raise RuntimeError(f"Recovery did not advance exactly two isolated updates: {receipt}")
+                after.append(audit(output / "last.ckpt", 10))
+            subprocess.run([str(PYTHON), str(CODE / "audit_native_lr.py"), "--checkpoint", str(output / "last.ckpt"),
+                            "--output", str(RUN / f"protocol/stage{stage}_resume_lr{suffix}.json")], check=True)
+            if stage == 1:
+                subprocess.run([str(PYTHON), str(CODE / "audit_stage1_resume.py"), "--before", str(source),
+                                "--after", str(output / "last.ckpt"),
+                                "--output", str(RUN / ("protocol/stage1_resume_exact_audit" + suffix + ".json"))], check=True)
+        write(RUN / ("protocol/recovery_acceptance" + suffix + ".json"), dict(status="passed", before=before, after=after,
               updated_unix=time.time(), note="Real Lightning restore: isolated 8 to 10 updates, full official schedule denominators; no claim of bitwise equivalence to uninterrupted training."))
+    hold_path = RUN / "protocol/HOLD_FORMAL.json"
+    if hold_path.exists():
+        hold = read(hold_path)
+        if hold.get("required_acceptance_tag") != args.acceptance_tag or hold.get("repaired_training_script_sha256") != pipeline.sha(CODE / "train_native.py"):
+            write(state, dict(status="formal_dispatch_held", hold=hold, updated_unix=time.time()))
+            return
+        write(RUN / ("protocol/HOLD_FORMAL_RESOLVED" + suffix + ".json"), dict(original_hold=hold,
+              resolved_by_acceptance_tag=args.acceptance_tag, resolved_unix=time.time(),
+              recovery_acceptance=str(RUN / ("protocol/recovery_acceptance" + suffix + ".json"))))
+        hold_path.unlink()
     write(state, dict(status="formal_pipeline_running", updated_unix=time.time()))
-    subprocess.run([sys.executable, "-u", str(CODE / "pipeline.py"), "--cutoff", args.cutoff], cwd=ROOT, check=True)
+    subprocess.run([sys.executable, "-u", str(CODE / "pipeline.py"), "--cutoff", args.cutoff,
+                    "--acceptance-tag", args.acceptance_tag], cwd=ROOT, check=True)
     final = read(RUN / "pipeline.json")
     write(state, dict(status=final["status"], pipeline=final, updated_unix=time.time()))
 
@@ -137,7 +159,10 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--preflight-pid", type=int, default=0)
     parser.add_argument("--cutoff", default="2026-11-04T23:00:00-08:00")
+    parser.add_argument("--acceptance-tag", default="")
     arguments = parser.parse_args()
+    if arguments.acceptance_tag and not re.fullmatch(r"[a-z][a-z0-9_]{0,31}", arguments.acceptance_tag):
+        parser.error("acceptance-tag must be a short lowercase identifier")
     try:
         main(arguments)
     except pipeline.DeadlineReached:

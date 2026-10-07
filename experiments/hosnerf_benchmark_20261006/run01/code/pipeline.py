@@ -9,6 +9,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import select
 import subprocess
 import time
@@ -133,8 +134,9 @@ def checkpoint(directory):
     return matches[0]
 
 
-def train(scene, stage, smoke=False):
-    output=RUN/'runs'/('smoke' if smoke else 'formal')/scene/f'stage{stage}'
+def train(scene, stage, smoke=False, acceptance_tag=''):
+    suffix='_'+acceptance_tag if acceptance_tag else ''
+    output=RUN/'runs'/('smoke'+suffix if smoke else 'formal')/scene/f'stage{stage}'
     output.mkdir(parents=True,exist_ok=True)
     command=[str(PYTHON),'-u',str(CODE/'train_native.py'),'--stage',str(stage),'--scene',scene,
              '--data-root',str(RUN/'data'),'--output',str(output),'--max-steps',str(STEPS[stage]),
@@ -146,7 +148,7 @@ def train(scene, stage, smoke=False):
                   '--human-checkpoint',str(checkpoint(output.parent/'stage2'))]
     # A resumed segment always retains the complete target step budget.
     if (output/'last.ckpt').exists():command+=['--resume',str(output/'last.ckpt')]
-    result=task(command,f'{scene}_stage{stage}_'+('smoke' if smoke else 'segment'))
+    result=task(command,f'{scene}_stage{stage}_'+('smoke'+suffix if smoke else 'segment'))
     subprocess.run(['python3',str(CODE/'summarize.py')],cwd=ROOT,check=True)
     return result
 
@@ -160,11 +162,13 @@ def main(a):
         write(RUN/f'duplicate_launch_{os.getpid()}.json',dict(status='rejected',reason='another pipeline owns the lock',time=time.time()))
         return
     DEADLINE=dt.datetime.fromisoformat(a.cutoff).timestamp()
+    suffix='_'+a.acceptance_tag if a.acceptance_tag else ''
+    preflight_path=RUN/('preflight'+suffix+'.json')
     if a.preflight:
         task([str(PYTHON),'-u',str(CODE/'prepare_flow.py'),'--scene','Backpack','--data-root',str(RUN/'data'),
               '--checkpoint',str(ROOT/'models/RAFT/raft-things.pth')], 'Backpack_flow')
-        for stage in (1,2,3):train('Backpack',stage,smoke=True)
-        write(RUN/'preflight.json',dict(status='passed',finished_unix=time.time(),
+        for stage in (1,2,3):train('Backpack',stage,smoke=True,acceptance_tag=a.acceptance_tag)
+        write(preflight_path,dict(status='passed',finished_unix=time.time(),acceptance_tag=a.acceptance_tag,
                                       note='Three isolated 8-update native stages; no benchmark metrics'))
         write(RUN/'pipeline.json',dict(status='preflight_passed',finished_unix=time.time()))
         return
@@ -172,7 +176,7 @@ def main(a):
         write(RUN/'pipeline.json',dict(status='formal_dispatch_held',
               hold=read(RUN/'protocol/HOLD_FORMAL.json'), updated_unix=time.time()))
         return
-    if not (RUN/'preflight.json').exists() or read(RUN/'preflight.json')['status']!='passed':
+    if not preflight_path.exists() or read(preflight_path)['status']!='passed':
         raise RuntimeError('Three-stage preflight is required before formal training')
     cutoff=DEADLINE
     for scene in SCENES:
@@ -205,7 +209,10 @@ def main(a):
 if __name__=='__main__':
     p=argparse.ArgumentParser();p.add_argument('--preflight',action='store_true')
     p.add_argument('--cutoff',default='2026-11-04T23:00:00-08:00')
+    p.add_argument('--acceptance-tag',default='')
     args=p.parse_args()
+    if args.acceptance_tag and not re.fullmatch(r'[a-z][a-z0-9_]{0,31}',args.acceptance_tag):
+        p.error('acceptance-tag must be a short lowercase identifier')
     try:main(args)
     except DeadlineReached:
         write(RUN/'pipeline.json',dict(status='stopped_at_freeze_deadline',updated_unix=time.time()))
