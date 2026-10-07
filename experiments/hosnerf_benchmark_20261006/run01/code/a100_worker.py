@@ -127,6 +127,7 @@ def verify_generated_camera(digest, identity_path):
     assert proof['camera_sha256'] == digest and proof['training_script_sha256'] == TRAIN_SHA
     assert proof['source_identity_sha256'] == sha(identity_path) and proof['scene'] == SCENE
     allowed = {RUN / f'runs/formal/{SCENE}/stage{stage}/last.ckpt' for stage in [1, 2, 3]}
+    allowed.update(RUN / f'runs/formal/{SCENE}/stage{stage}/final.ckpt' for stage in [1, 2, 3])
     allowed.update(RUN / f'runs/smoke_a100_r2/{SCENE}/stage{stage}/last.ckpt' for stage in [1, 2, 3])
     allowed.update(STATE / f'acceptance/stage{stage}/step000000008.ckpt' for stage in [1, 2, 3])
     validated = False
@@ -135,6 +136,12 @@ def verify_generated_camera(digest, identity_path):
         assert checkpoint in allowed, 'Camera provenance points outside this worker'
         if not checkpoint.is_file() or sha(checkpoint) != row['sha256']:
             continue
+        for name in ['state_audit', 'lr_audit']:
+            audit_file = Path(row[name])
+            assert audit_file.is_relative_to(STATE / 'audits')
+            assert sha(audit_file) == row[name + '_sha256']
+            audit = read(audit_file)
+            assert audit['status'] == 'passed' and audit['checkpoint_sha256'] == row['sha256']
         payload = torch.load(checkpoint, map_location='cpu', weights_only=False)
         native = payload['benchmark_identity']
         assert native['training_script_sha256'] == TRAIN_SHA and native['scene'] == SCENE
@@ -561,13 +568,15 @@ class Worker:
         for stage in [1, 2, 3]:
             directory = RUN / f'runs/formal/{SCENE}/stage{stage}'
             directory.mkdir(parents=True, exist_ok=True)
+            last_audited = None
             while True:
                 self.deadline_check()
                 receipt = directory / 'receipt.json'
                 current = int(read(receipt)['global_step']) if receipt.exists() else 0
                 last = directory / 'last.ckpt'
-                if current:
+                if current and current != last_audited:
                     self.audit(last, stage, True, current, directory, f'formal_stage{stage}_g{current:09d}')
+                    last_audited = current
                 else:
                     assert not last.exists() and not (directory / 'final.ckpt').exists(), 'Formal training must start from scratch'
                 if current == STEPS[stage]:
@@ -581,6 +590,7 @@ class Worker:
                 after = read(receipt)
                 assert after['global_step'] == current + updates and after['formal'] is True
                 self.audit(last, stage, True, current + updates, directory, f'formal_stage{stage}_g{current+updates:09d}')
+                last_audited = current + updates
         output = RUN / f'evaluation/{SCENE}'
         self.gpu([str(PYTHON), '-u', str(CODE / 'evaluate_native.py'), '--scene', SCENE, '--data-root', str(DATA),
              '--checkpoint', str(RUN / f'runs/formal/{SCENE}/stage3/final.ckpt'), '--output', str(output)], 'Tennis_terminal_evaluation')
