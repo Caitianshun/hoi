@@ -92,7 +92,7 @@ def task(command, label):
                             raise RuntimeError(f'GPU1 not confirmed idle with >=20GB available: {reading}')
                     check_deadline()
                     started=time.time()
-                    env=dict(os.environ, CUDA_VISIBLE_DEVICES=GPU, OMP_NUM_THREADS='4', OPENBLAS_NUM_THREADS='4', PYTHONUNBUFFERED='1')
+                    env=dict(os.environ, CUDA_VISIBLE_DEVICES=GPU, OMP_NUM_THREADS='4', OPENBLAS_NUM_THREADS='4', PYTHONUNBUFFERED='1', PL_FAULT_TOLERANT_TRAINING='0', PL_INTER_BATCH_PARALLELISM='0')
                     log=RUN/'logs'/f'{label}.log'
                     write(state, dict(status='running',task=label,command=command,gpu=GPU,readings=[first,second],started_unix=started,log=str(log)))
                     with log.open('a') as f:
