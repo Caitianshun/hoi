@@ -7,6 +7,7 @@ run on CPU; recovery checks use the same resource lock as the training queue.
 from __future__ import annotations
 
 import argparse
+from datetime import datetime
 import fcntl
 import json
 import os
@@ -16,6 +17,7 @@ import subprocess
 import sys
 import time
 import traceback
+import pipeline
 
 RUN = Path(__file__).resolve().parents[1]
 ROOT = RUN.parents[2]
@@ -46,6 +48,7 @@ def wait_exit(pid):
 
 def audit(path, expected_step):
     import torch
+    torch.set_num_threads(4)
     payload = torch.load(path, map_location="cpu", weights_only=False)
     assert payload["global_step"] == expected_step, path
     identity = payload["benchmark_identity"]
@@ -73,7 +76,7 @@ def audit(path, expected_step):
                     assert torch.isfinite(tensor).all(), path
                     checks["adam_floating_tensors"] += 1
     checks.update(global_step=payload["global_step"], stage=identity["stage"],
-                  checkpoint=str(path), checkpoint_sha256=__import__("pipeline").sha(path),
+                  checkpoint=str(path), checkpoint_sha256=pipeline.sha(path),
                   sampler_committed=payload["benchmark_sampling"]["committed"],
                   optimizer_step_min=min(optimizer_steps), optimizer_step_max=max(optimizer_steps))
     return checks
@@ -81,7 +84,12 @@ def audit(path, expected_step):
 
 def main(args):
     controller_lock = (RUN / "controller.lock").open("a")
-    fcntl.flock(controller_lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    try:
+        fcntl.flock(controller_lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        write(RUN / f"duplicate_controller_{os.getpid()}.json",
+              dict(status="rejected", reason="another controller owns the lock", updated_unix=time.time()))
+        return
     state = RUN / "controller.json"
     write(state, dict(status="waiting_for_preflight_exit", preflight_pid=args.preflight_pid,
                       updated_unix=time.time()))
@@ -89,8 +97,7 @@ def main(args):
         wait_exit(args.preflight_pid)
     if not (RUN / "preflight.json").exists() or read(RUN / "preflight.json")["status"] != "passed":
         raise RuntimeError("The isolated three-stage preflight did not pass; formal training was not started")
-    import pipeline
-    pipeline.DEADLINE = __import__("datetime").datetime.fromisoformat(args.cutoff).timestamp()
+    pipeline.DEADLINE = datetime.fromisoformat(args.cutoff).timestamp()
     # Keep the training queue exclusive during the isolated recovery checks.
     with (RUN / "pipeline.lock").open("a") as queue_lock:
         fcntl.flock(queue_lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -133,6 +140,8 @@ if __name__ == "__main__":
     arguments = parser.parse_args()
     try:
         main(arguments)
+    except pipeline.DeadlineReached:
+        write(RUN / "controller.json", dict(status="stopped_at_freeze_deadline", updated_unix=time.time()))
     except BaseException:
         write(RUN / "controller.json", dict(status="failed", traceback=traceback.format_exc(), updated_unix=time.time()))
         raise
