@@ -385,6 +385,8 @@ def construct_training(args, runtime, identity):
                         raise RuntimeError(f"Stage 3 {name} initialization dataset metadata differs: {key}")
                 if not args.smoke and (not parent["formal"] or payload["global_step"] != STAGES[expected_stage][2]):
                     raise RuntimeError(f"Formal stage 3 requires the completed official-budget {name} stage")
+                if name == "human" and parent["flow_manifest_sha256"] != identity["flow_manifest_sha256"]:
+                    raise RuntimeError("Stage 3 human initialization flow manifest differs")
                 expected_prefix = "human." if name == "human" else "model."
                 selected = {key: value for key, value in payload["state_dict"].items() if key.startswith(expected_prefix)}
                 target = {key: value for key, value in model.state_dict().items() if key.startswith(expected_prefix)}
@@ -428,6 +430,7 @@ def evaluate_final(args, runtime, model, trainer, identity):
     model.test_metrics = types.MethodType(namespace["test_metrics"], model)
     model.near_bkg = .1
     model.far_bkg = 1e6
+    model.to(torch.device("cuda", args.device))
     model.eval()
     with torch.no_grad():
         model.test_metrics()
