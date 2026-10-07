@@ -85,6 +85,17 @@ def prepare():
         counting="GPU process wall time includes loading, saving, failures, integrated acceptance and final rendering; resource-lock waits and report layout are CPU time. A begun attempt without a completed-update record has unknown Adam outcome.")
     save(RUN/"costs.json",costs);save(RUN/"model_index.json",dict(models=models,
         self_contained_retraining_package=False,large_assets_retained_on_training_host=True))
+    conditions={}
+    for scene,cfg in config()["scenes"].items():
+        directory=RUN/"scenes"/scene/"protocol"
+        conditions[scene]=dict(parent=next(m for m in models if m["scene"]==scene and m["role"]=="parent"),
+            training_frames=cfg["training_frames"],development_frames=cfg["retained_frames"],
+            V9_time_mapping=f"(frame_id-1)/{cfg['time_denominator']}",native_HOSNeRF_time_mapping="frame_id/(N-1); never substituted for V9 time",
+            camera_identity="Locked published parent manifest; full-sequence camera-preprocessing provenance unconfirmed",
+            canonical_skeleton="Published scene prior; source preprocessing is not asserted train-only",
+            extra_inputs=dict(C="Original parent representation; no pose-driven support",P="Training poses, roots, canonical joints, training RGB/mask for seed colors",PQ="Same P inputs; training foreground mask also weights Qr"),
+            query=config()["pose_query"],identity_assets=[identity(p) for p in [directory/"input_identity.json",directory/"pose_cache.pt",directory/"support_seed.pt",directory/"RGB_schedule.json"] if p.exists()])
+    save(RUN/"input_conditions.json",conditions)
     ev=read(RUN/"evaluation_summary.json");pareto={}
     for scene,value in ev["scenes"].items():
         vectors={a:[value["summaries"][a]["retained"]["full"][k]*(1 if k!="lpips_spatial_mean" else -1) for k in KEYS] for a in ["PARENT","C","P","PQ"]}
@@ -198,7 +209,7 @@ def package():
     def add(path,name=None):
         path=Path(path)
         if path.is_file():files[name or path.relative_to(RUN).as_posix()]=path
-    for name in ["metrics_per_frame.csv","paired_differences.csv","evaluation_summary.json","costs.json","model_index.json","NEXT_DECISION.md","REPRODUCE.md"]:add(RUN/name)
+    for name in ["metrics_per_frame.csv","paired_differences.csv","evaluation_summary.json","costs.json","model_index.json","input_conditions.json","NEXT_DECISION.md","REPRODUCE.md"]:add(RUN/name)
     for folder in ["protocol","scenes","diagnostics","logs","code","configs"]:
         for path in (RUN/folder).rglob("*"):
             if not path.is_file() or "__pycache__" in path.parts:continue

@@ -106,10 +106,6 @@ def gpu_lease(label):
             append(RUN / "protocol/resource_checks.jsonl", dict(label=label,
                 status="two_idle_readings_under_all_shared_locks", readings=[first, second],
                 locks=[str(x) for x in paths], CPU_wait_seconds=time.monotonic()-start))
-            try: yield tuple(h.fileno() for h in handles)
-            finally:
-                for h in handles: h.close()
-            return
         except BlockingIOError as error:
             for h in handles: h.close()
             attempts += 1
@@ -121,9 +117,16 @@ def gpu_lease(label):
             if time.monotonic()-start >= hw["resource_wait_seconds"]:
                 raise RuntimeError("Resource wait expired; foreign jobs preserved")
             time.sleep(hw["idle_sample_interval_seconds"])
+            continue
         except BaseException:
             for h in handles: h.close()
             raise
+        # Never interpret an exception from our yielded CUDA job as a resource
+        # acquisition retry; the caller must cost and preserve that failed job.
+        try: yield tuple(h.fileno() for h in handles)
+        finally:
+            for h in handles: h.close()
+        return
 
 
 def budget_remaining():
@@ -188,6 +191,11 @@ def completed_run(scene, arm):
     if result.get("status") != "completed": return None
     assert result["completed_updates"] == config()["schedule"]["updates"]
     bound(result["checkpoint"])
+    effective_path = directory / "effective_config.json"
+    if effective_path.exists():
+        effective = read(effective_path)
+        if "input" in effective and "config" in effective["input"]:
+            assert effective["input"]["config"]["sha256"] == identity(RUN / "configs/v10.json")["sha256"]
     return result
 
 
@@ -306,7 +314,8 @@ def main():
         try:
             phases = ["train", "evaluate", "report"] if args.phase in ["all", "train-to-report"] else [args.phase]
             for phase in phases: globals()[phase]()
-            if phases[-1] != "report": status("phase_completed", completed_phase=phases[-1])
+            if phases[-1] != "report":
+                save(RUN / "pipeline.json", dict(status="phase_completed", phase=phases[-1], pid=os.getpid(), time_unix=time.time()))
         except BaseException:
             save(RUN / "pipeline.json", dict(status="failed", requested_phase=args.phase,
                  pid=os.getpid(), time_unix=time.time(), traceback=traceback.format_exc()))
