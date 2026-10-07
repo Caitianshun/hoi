@@ -398,10 +398,13 @@ def evaluate(receipt, snapshot, bundle):
     output = RUN / 'evaluation/Tennis'
     if output.exists() and any(output.iterdir()):
         previous = read(output / 'metrics.json') if (output / 'metrics.json').exists() else {}
+        launch = read(RETURN / 'local_evaluation_launch.json') if (RETURN / 'local_evaluation_launch.json').exists() else {}
         prior_identity = previous.get('identity', {})
         if (previous.get('status') != 'completed' or prior_identity.get('checkpoint_sha256') != sha(checkpoint)
                 or prior_identity.get('data_path') != str(data_root / 'Tennis')
                 or prior_identity.get('evaluator_sha256') != sha(evaluator)
+                or launch.get('physical_gpu') != '1' or launch.get('checkpoint_sha256') != sha(checkpoint)
+                or launch.get('evaluator_sha256') != sha(evaluator) or launch.get('output') != str(output)
                 or not prior_identity.get('torch_version')
                 or str(output) == str(snapshot / 'evaluation/Tennis')):
             raise RuntimeError('Existing local evaluation cannot be overwritten or reused as unified GPU1 evaluation')
@@ -427,6 +430,9 @@ def evaluate(receipt, snapshot, bundle):
                                OPENBLAS_NUM_THREADS='4', PYTHONUNBUFFERED='1')
                     write(RETURN / 'watcher.json', dict(status='unified_local_evaluation', physical_gpu='1',
                           gpu_readings=[first, second], command=command, started_unix=started))
+                    write(RETURN / 'local_evaluation_launch.json', dict(physical_gpu='1', output=str(output),
+                          checkpoint_sha256=sha(checkpoint), evaluator_sha256=sha(evaluator), data_root=str(data_root),
+                          command=command, gpu_readings=[first, second], started_unix=started))
                     with (RETURN / 'local_evaluation.log').open('a') as log:
                         child = subprocess.Popen(command, cwd=ROOT, env=env, stdout=log, stderr=subprocess.STDOUT,
                                                  pass_fds=(lock.fileno(),))
@@ -451,6 +457,8 @@ def evaluate(receipt, snapshot, bundle):
           checkpoint=str(checkpoint), checkpoint_sha256=sha(checkpoint), data_root=str(data_root),
           remote_training_checkpoint=receipt['evaluation']['checkpoint'],
           source_identity_sha256=bundle['identity']['sha256'], evaluator_sha256=sha(evaluator),
+          uniformity_scope='Tennis recomputed on local GPU1; other five scenes retain local pipeline GPU0 evaluations; same local environment and metric implementation, not all-six GPU1',
+          remote_training_hardware=receipt['training_hardware'],
           elapsed_seconds=time.time()-started, cross_hardware_optimization_equivalence_claimed=False))
     subprocess.run([sys.executable, str(RUN / 'code/summarize.py')], cwd=ROOT, check=True)
     summary = read(RUN / 'summary.json')
@@ -500,10 +508,35 @@ def check_only():
     child = subprocess.Popen([sys.executable, '-c', 'pass'])
     wait_pids([child.pid])
     assert child.wait() == 0
+    with tempfile.TemporaryDirectory() as name:
+        state = Path(name) / 'a100_worker'
+        state.mkdir()
+        worker = subprocess.Popen([sys.executable, '-c', 'import time;time.sleep(.5)',
+                                   str(REMOTE_RUN / 'code/a100_worker.py'), '--run'])
+        write(state / 'state.json', dict(status='completed', worker_pid=worker.pid))
+        config = dict(state=str(state), pid=worker.pid, service=None, start_ticks=0)
+        output = subprocess.check_output([sys.executable, '-u', '-c', WAIT_SCRIPT, json.dumps(config)], text=True)
+        events = [json.loads(line) for line in output.splitlines()]
+        assert [row['event'] for row in events] == ['attached', 'terminal_after_exit']
+        assert events[0]['attachment']['pid'] == worker.pid and worker.wait() == 0
+        # Exercise stable terminal receipt/manifest/source linkage with the real
+        # remote bundle code, executed against a temporary local CPU fixture.
+        source = state / 'deployment_identity.json'
+        write(source, dict(sources={}))
+        manifest = state / 'terminal_files.json'
+        write(manifest, dict(status='completed', files=[]))
+        receipt = state / 'terminal_receipt.json'
+        write(receipt, dict(source_identity=str(source), source_identity_sha256=sha(source),
+                           file_manifest=str(manifest), file_manifest_sha256=sha(manifest)))
+        write(state / 'state.json', dict(status='completed', terminal_receipt=str(receipt),
+                                        terminal_receipt_sha256=sha(receipt), worker_pid=worker.pid))
+        control = json.loads(subprocess.check_output([sys.executable, '-c', BUNDLE_SCRIPT, str(state.parent)], text=True))
+        assert control['receipt']['sha256'] == sha(receipt) and control['identity']['sha256'] == sha(source)
     result = dict(status='cpu_check_passed', watcher_sha256=sha(__file__), gpu_tasks_launched=0,
                   remote_connections=0, unsafe_paths_rejected=len(rejected),
                   terminal_file_selection_checked=True, stable_control_hashes_checked=True,
                   symlink_escape_rejected=True, real_local_pidfd_exit_wait_checked=True,
+                  real_remote_wait_code_executed_locally=True, terminal_bundle_code_executed_locally=True,
                   gpu='physical GPU1 only; shared 4dsr evaluation lock; two readings before launch',
                   default_mode='CPU check only; --run required', completed_unix=time.time())
     write(RETURN / 'watcher_cpu_check.json', result)
