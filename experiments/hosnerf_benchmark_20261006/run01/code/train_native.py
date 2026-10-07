@@ -81,7 +81,7 @@ def arguments() -> argparse.Namespace:
         value = getattr(args, name)
         if value is not None:
             setattr(args, name, value.expanduser().resolve())
-    args.max_steps = args.max_steps or (2 if args.smoke else STAGES[args.stage][2])
+    args.max_steps = args.max_steps if args.max_steps is not None else STAGES[args.stage][2]
     if args.max_steps <= 0 or not 1 <= args.checkpoint_every <= 2000:
         parser.error("max-steps must be positive and checkpoint-every must be within 1..2000")
     if args.max_steps != STAGES[args.stage][2] and not args.smoke:
@@ -131,7 +131,6 @@ class SamplingCursor:
                     cursor.np.random.set_state(self.epoch_rng["numpy"])
                     cursor.torch.set_rng_state(self.epoch_rng["torch"])
                     iterator = iter(self.source)
-                    # Force lazy RandomSampler initialization even at cursor=0.
                     for _ in range(self.committed):
                         next(iterator)
                     cursor.np.random.set_state(current_np)

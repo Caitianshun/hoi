@@ -16,6 +16,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SOURCE_ROOTS = ("scripts", "experiments", "research", "patches", "hoi_modules")
 ROOT_FILES = ("README.md", "AGENTS.md", ".gitignore", ".vscode/settings.json")
 EXTRA_CONFIG_FILES = (
+    "experiments/hosnerf_benchmark_20261006/run01/configs/benchmark.json",
     "experiments/local_dynamic_v9_20260929/run01/configs/v9.json",
     "experiments/temporal_evidence_v8_20260928/run01/configs/v8.json",
     "experiments/temporal_evidence_v8_20260928/run01/configs/v8_tennis.json",

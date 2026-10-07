@@ -1,0 +1,49 @@
+{
+  "dataset": "HOSNeRF",
+  "scenes": [
+    "Backpack",
+    "Tennis",
+    "Suitcase",
+    "Playground",
+    "Dance",
+    "Lounge"
+  ],
+  "split": "sorted numeric PNG indices arange(N)[::floor(N/16)][:16] test, all remaining train",
+  "resolution": "native published PNG dimensions; resize_img_scale=1",
+  "seed": 777,
+  "official_revision": "ca169704a9d965e8266c034cceb506ffba72f405",
+  "stages": {
+    "background": 500000,
+    "human_object": 400000,
+    "complete": 200000
+  },
+  "checkpoint_selection": "prescribed final; no heldout selection",
+  "metric_protocol": {
+    "primary": [
+      "PSNR",
+      "LPIPS_VGG"
+    ],
+    "additional": [
+      "SSIM_spatial"
+    ],
+    "aggregation": "equal frame arithmetic mean per scene; equal scene arithmetic mean"
+  },
+  "flow": {
+    "source": "frozen RAFT Things model",
+    "iterations": 20,
+    "inference_long_edge": 768,
+    "pairs": "current retained train image to previous retained train image",
+    "first_train": "zero mask; no valid predecessor",
+    "test_rgb_for_flow": false,
+    "validity": "forward backward consistency .5*(norms)+.5 px plus in-bounds"
+  },
+  "hardware_preference": "confirmed idle local RTX3090 physical GPU1; shared lock with existing GPU1 evaluations",
+  "segment_updates": 2000,
+  "full_schedule_denominator_preserved": true,
+  "preflight": {
+    "optimizer_updates_per_stage": 8,
+    "isolated_from_formal": true
+  },
+  "freeze_cutoff": "2026-11-04T23:00:00-08:00",
+  "training_scope": "one from-scratch baseline per scene; no new method/module or sweeps"
+}
