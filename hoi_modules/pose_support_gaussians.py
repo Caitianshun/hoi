@@ -344,7 +344,7 @@ class PoseSupportGaussians(nn.Module):
         linear = affine[:, :3, :3]
         means = torch.einsum('nij,nj->ni', linear, u) + affine[:, :3, 3]
         log_scale = self._scaling + delta[:, 3:6]
-        log_scale = torch.clamp(log_scale, min=-20, max=torch.log(log_scale.new_tensor(self.scale_bound) / m))
+        log_scale = torch.clamp(log_scale, max=torch.log(log_scale.new_tensor(self.scale_bound) / m))
         rotation = quaternion_rotation(self._rotation + delta[:, 6:10])
         canonical_cov = (rotation * torch.exp(2 * log_scale)[:, None, :]) @ rotation.transpose(1, 2)
         covariance = linear @ canonical_cov @ linear.transpose(1, 2)
@@ -471,7 +471,7 @@ class PoseSupportGaussians(nn.Module):
             self.gradient_accum.zero_()
             self.visible_count.zero_()
             self.max_radii2D.zero_()
-        return {'completed_updates': k, 'before': before, 'after': len(self),
+        return {'before': before, 'after': len(self),
                 'opacity_pruned': int(prune.sum()), 'clone_parents': len(clone), 'split_parents': len(split),
                 'new_children': len(child_parent), 'cap': self.max_points}
 
