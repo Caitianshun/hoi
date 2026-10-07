@@ -7,10 +7,13 @@ def rgb_background(ds,device='cuda'):
     assert ds.white_background;return torch.ones(3,dtype=torch.float32,device=device)
 def packed_covariance(cov):return torch.stack([cov[:,0,0],cov[:,0,1],cov[:,0,2],cov[:,1,1],cov[:,1,2],cov[:,2,2]],dim=-1).contiguous()
 def base_attributes(base,time,bound):
-    from utils.general_utils import build_rotation
     xyz=base.get_xyz;t=torch.full((len(xyz),1),float(time),device=xyz.device,dtype=xyz.dtype)
     means,logs,q,opacity,sh=base._deformation(xyz,base._scaling,base._rotation,base._opacity,base.get_features,t)
-    scale=torch.exp(logs.clamp(max=math.log(bound)));rotation=build_rotation(torch.nn.functional.normalize(q,dim=-1))
+    scale=torch.exp(logs.clamp(max=math.log(bound)))
+    r,x,y,z=torch.nn.functional.normalize(q,dim=-1).unbind(-1)
+    rotation=torch.stack((1-2*(y*y+z*z),2*(x*y-r*z),2*(x*z+r*y),
+        2*(x*y+r*z),1-2*(x*x+z*z),2*(y*z-r*x),
+        2*(x*z-r*y),2*(y*z+r*x),1-2*(x*x+y*y)),dim=-1).reshape(-1,3,3)
     L=rotation*scale[:,None,:];cov=L@L.transpose(1,2)
     return dict(means3D=means,cov3D_precomp=packed_covariance(cov),shs=sh,opacities=base.opacity_activation(opacity),
         rendered_scale_bounded=scale,rotation_final=q,opacity_final=opacity)

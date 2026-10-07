@@ -72,9 +72,10 @@ def sampler_at(sched,completed):
     used=completed*2;count=sched.get('camera_count',sched.get('training_frames'))
     if count is None:count=len(read(INPUT_PATHS[sched['scene']]/'manifest.json')['frames'])
     flat=[x for batch in sched['batches'] for x in batch];offset=used%count
-    taken=set(flat[used-offset:used]) if offset else set()
+    epoch_start=used-offset
+    epoch_order=flat[epoch_start:epoch_start+count]
     return dict(completed_updates=completed,schedule_sha256=sched.get('schedule_sha256'),
-        remaining_stack=[i for i in range(count) if i not in taken],next_frame_uids=sched['batches'][completed] if completed<len(sched['batches']) else [])
+        remaining_stack=epoch_order[offset:] if completed<len(sched['batches']) else [],next_frame_uids=sched['batches'][completed] if completed<len(sched['batches']) else [])
 def capture(base,support,optimizer,scene,arm,completed,meta):
     sched=schedule(scene)
     return clone_cpu(dict(schema=SCHEMA,phase='after_Adam_topology_and_zero_grad',resumable=True,

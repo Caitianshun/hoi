@@ -1,0 +1,65 @@
+{
+  "protocol": "V10",
+  "arms": ["C", "P", "PQ"],
+  "modes": ["C", "P", "PQ"],
+  "scenes": {
+    "Backpack": {
+      "input_dir": "experiments/baseline_protocol_calibration_20260927/run01/inputs/hos_backpack",
+      "historical_dir": "experiments/temporal_evidence_v8_20260928/run01",
+      "v9_dir": "experiments/local_dynamic_v9_20260929/run01/scenes/Backpack",
+      "parent_checkpoint": "experiments/local_dynamic_v9_20260929/run01/scenes/Backpack/runs/Q0/checkpoint_fine_030000.pt",
+      "parent_schema": "V9", "parent_arm": "Q0", "parent_completed_updates": 30000,
+      "training_frames": 268, "retained_frames": 16, "time_denominator": 282
+    },
+    "Tennis": {
+      "input_dir": "experiments/temporal_evidence_v8_20260928/run01/tennis/inputs/hos_tennis",
+      "historical_dir": "experiments/temporal_evidence_v8_20260928/run01/tennis",
+      "v9_dir": "experiments/local_dynamic_v9_20260929/run01/scenes/Tennis",
+      "parent_checkpoint": "experiments/temporal_evidence_v8_20260928/run01/tennis/runs/B_Q/checkpoint_fine_014000.pt",
+      "parent_schema": "V8", "parent_arm": "Q", "parent_completed_updates": 13999,
+      "training_frames": 285, "retained_frames": 16, "time_denominator": 299
+    }
+  },
+  "seed": 12345,
+  "rgb_sequence_seed": 12345,
+  "support_seed": 20261007,
+  "batch_size": 2,
+  "mask_threshold": 128,
+  "background": "white",
+  "fresh_Adam": true,
+  "base_topology_frozen": true,
+  "quality_objective": {"L1": 0.8, "one_minus_SSIM11": 0.2, "raw_RGB": true, "PQ_full_weight": 0.9, "PQ_FG_weight": 0.1},
+  "support": {
+    "initial_points": 20000, "max_points": 60000,
+    "joints": 24, "top_bones": 4, "fixed_skin_weights": true,
+    "volume_resolution": 64, "canonical_box_padding_H": 0.15,
+    "color_training_frames": 16, "initial_opacity": 0.01,
+    "initial_sh_degree": 0, "sh_increase_after_updates": [1000, 2000, 3000],
+    "hidden_width": 64, "hidden_layers": 2, "fourier_frequencies": [1, 2, 4, 8],
+    "density_from_update": 500, "density_until_update": 8000, "density_interval": 100,
+    "density_after_Adam": true, "gradient_threshold": 0.0002,
+    "opacity_prune_threshold": 0.005, "opacity_prune_from_update": 1000,
+    "percent_dense": 0.01, "opacity_reset": false,
+    "covariance_epsilon_extent_factor": 0.00001
+  },
+  "learning_rates": {
+    "base": {"xyz": 0.0000016, "deformation": 0.000016, "grid": 0.00016, "f_dc": 0.00025, "f_rest": 0.0000125, "opacity": 0.005, "scaling": 0.0005, "rotation": 0.0001},
+    "support": {"xyz": [0.00016, 0.0000016], "residual": [0.00016, 0.000016], "f_dc": 0.0025, "f_rest": 0.000125, "opacity": 0.05, "scaling": 0.005, "rotation": 0.001},
+    "base_xyz_only_times_spatial_lr_scale": true,
+    "support_schedule": "log-linear (k-1)/19999"
+  },
+  "schedule": {"updates": 20000, "fine_updates": 20000, "checkpoint_interval": 250, "middle_snapshot": 10000, "save_after_final_Adam": true},
+  "budgets": {"GPU_seconds": 57600, "formal_updates": 120000, "normal_formal_updates": 120000, "formal_attempts": 121536, "integrated_Adam_updates": 96, "extra_no_update_backwards": 16, "external_resumes_per_job": 1, "replay_updates_per_job": 256},
+  "hardware": {
+    "physical_GPU": 1, "GPU_uuid": "GPU-c40035c3-0f06-e88b-73f5-fa40d62ec4ec", "name": "NVIDIA GeForce RTX 3090", "CPU_threads": 4,
+    "python": "envs/4dgs/bin/python", "idle_sample_interval_seconds": 15, "resource_wait_seconds": 86400,
+    "maximum_idle_memory_MiB": 100, "maximum_idle_utilization_percent": 5,
+    "shared_locks": [
+      "/home/cai_tianshun/Project/4dsr/output/dynamic_sr_confidence_geometry_20261006/evaluation_gpu.lock",
+      "/home/cai_tianshun/Project/4dsr/output/dynamic_sr_multiview_footprint_20261007/locks/GPU-c40035c3-0f06-e88b-73f5-fa40d62ec4ec.controller.lock"
+    ]
+  },
+  "pose_query": {"training_poses_only": true, "local_rotation": "quaternion SLERP", "local_translation": "linear", "root_rotation": "quaternion SLERP", "root_translation": "linear", "root_positive_scale": "log-linear", "outside_training_range": "nearest training pose", "query_mask_used_for_render": false, "camera_identity": "locked parent manifest", "preprocessing_boundary": "published canonical skeleton and camera provenance not proven train-only"},
+  "evaluation": {"primary": "retained_development", "RGB_clip": [0, 1], "regions": ["full", "foreground", "background"], "metrics": ["psnr_db", "ssim", "lpips_spatial_mean"], "ssim": "V9 7x7 non-Gaussian sample covariance", "lpips": "AlexNet 0.1 spatial normalize=True", "ties": 0.000001, "scene_aggregation": "equal scene weights", "quality_gate": "complete vectors and explained Pareto tradeoffs; no foreground or geometry veto", "render_layout": "evaluation/{scene}/{PARENT,C,P,PQ}/{retained,train}/{frame_id}.npz"},
+  "core_evidence_freeze": "2026-11-04T23:00:00+08:00"
+}
