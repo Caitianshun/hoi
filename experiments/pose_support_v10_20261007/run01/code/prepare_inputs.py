@@ -112,7 +112,11 @@ def training_schedule(frame_ids: list[str], updates: int, seed: int) -> dict:
         stream.extend(order)
     stream = stream[:updates * 2]
     batches = [stream[i:i + 2] for i in range(0, len(stream), 2)]
+    schedule_sha256 = hashlib.sha256(json.dumps(
+        {"frame_ids": frame_ids, "batches": batches, "seed": seed, "updates": updates},
+        sort_keys=True, separators=(",", ":")).encode()).hexdigest()
     return {"schema": "V10.fixed_RGB_sequence.v1", "seed": seed,
+            "schedule_sha256": schedule_sha256,
             "updates": updates, "batch_size": 2, "camera_count": len(frame_ids),
             "rule": "independent Python Random; shuffled epochs without replacement, consumed from front",
             "frame_ids": frame_ids, "batches": batches, "batches_indices": batches,
