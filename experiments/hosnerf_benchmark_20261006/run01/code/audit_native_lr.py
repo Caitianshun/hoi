@@ -54,6 +54,8 @@ def audit(args):
         raise ValueError("Official source changed after the checkpoint was made")
     index = global_step - 1
     optimizer = payload["optimizer_states"][0]
+    if not optimizer["param_groups"]:
+        raise ValueError("A native checkpoint must contain nonempty Adam parameter groups")
     settings = {}
     if stage == 1:
         settings = defaults_from_source(source)
@@ -100,6 +102,7 @@ def audit(args):
     result = dict(status="passed" if all(row["passed"] for row in rows) else "failed",
         checkpoint=str(args.checkpoint), checkpoint_sha256=sha(args.checkpoint),
         stage=stage, scene=identity["scene"], global_step=global_step,
+        training_script_sha256=identity["training_script_sha256"],
         official_model_sha256=identity["official_model_sha256"],
         groups=len(rows), failed_groups=sum(not row["passed"] for row in rows),
         schedule=schedule, group_audit=rows)
@@ -125,6 +128,16 @@ if __name__ == "__main__":
         value = getattr(arguments, name)
         if value is not None:
             setattr(arguments, name, value.expanduser().resolve())
-    outcome = audit(arguments)
+    try:
+        outcome = audit(arguments)
+    except Exception as error:
+        outcome = dict(status="failed", checkpoint=str(arguments.checkpoint),
+                       error_type=type(error).__name__, error=str(error))
+        if arguments.output:
+            arguments.output.parent.mkdir(parents=True, exist_ok=True)
+            temporary = arguments.output.with_suffix(arguments.output.suffix + ".tmp")
+            temporary.write_text(json.dumps(outcome, indent=2) + "\n")
+            temporary.replace(arguments.output)
+        print(json.dumps(outcome, indent=2))
     if outcome["status"] != "passed" and not arguments.report_only:
         sys.exit(2)
