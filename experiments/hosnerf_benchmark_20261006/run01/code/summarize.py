@@ -33,15 +33,28 @@ def write_json(path, value):
 
 def stage_state(run, scene, stage):
     directory = run / "runs/formal" / scene / f"stage{stage}"
-    state = read(directory / "receipt.json") or read(directory / "status.json")
+    receipt = read(directory / "receipt.json")
+    current = read(directory / "status.json")
+    current_is_authoritative = bool(current and current.get("status") in {"failed", "running"})
+    state = current if current_is_authoritative else (receipt or current)
     if state is None:
         return dict(stage=stage, prescribed_steps=STEPS[stage], status="not_started", global_step=0)
-    step = int(state.get("global_step", 0))
+    # A failed or active invocation may not report a committed step yet. Keep
+    # the previous successful segment's receipt as the last confirmed step;
+    # it must not override the current failure/running state.
+    confirmed = receipt if current_is_authoritative and receipt else state
+    step = int(confirmed.get("global_step", 0))
     status = state.get("status", "unknown")
     if step < STEPS[stage] and status == "completed":
         status = "incomplete_segment"
-    return dict(stage=stage, prescribed_steps=STEPS[stage], global_step=step,
-                status=status, source_status=str(directory / "receipt.json") if (directory / "receipt.json").is_file() else str(directory / "status.json"))
+    result = dict(stage=stage, prescribed_steps=STEPS[stage], global_step=step,
+                  last_confirmed_global_step=step, status=status,
+                  source_status=str(directory / "status.json") if current_is_authoritative else str(directory / "receipt.json") if receipt else str(directory / "status.json"))
+    if current_is_authoritative and receipt:
+        result["last_confirmed_receipt"] = str(directory / "receipt.json")
+    if status == "failed":
+        result["failure"] = state.get("error", "See the stage status.json traceback")
+    return result
 
 
 def summarize(run):
