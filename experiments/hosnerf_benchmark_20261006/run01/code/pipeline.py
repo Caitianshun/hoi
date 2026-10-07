@@ -107,7 +107,7 @@ def task(command, label):
                     for reading in (first,second):
                         fields=reading.split(',')
                         if float(fields[-3])-float(fields[-2])<20000 or float(fields[-1])>10:
-                            raise RuntimeError(f'GPU1 not confirmed idle with >=20GB available: {reading}')
+                            raise RuntimeError(f'GPU{GPU} not confirmed idle with >=20GB available: {reading}')
                     check_deadline()
                     started=time.time()
                     env=dict(os.environ, CUDA_VISIBLE_DEVICES=GPU, OMP_NUM_THREADS='4', OPENBLAS_NUM_THREADS='4', PYTHONUNBUFFERED='1', PL_FAULT_TOLERANT_TRAINING='0', PL_INTER_BATCH_PARALLELISM='0')
@@ -154,7 +154,13 @@ def train(scene, stage, smoke=False, acceptance_tag=''):
 
 
 def main(a):
-    global DEADLINE
+    global DEADLINE, GPU, SHARED_LOCK, SCENES
+    GPU=a.gpu
+    if a.shared_lock:
+        SHARED_LOCK=a.shared_lock.expanduser().resolve()
+    elif GPU=='0':
+        SHARED_LOCK=RUN/'gpu0_resource.lock'
+    SCENES=a.scenes.split(',')
     lock=(RUN/'pipeline.lock').open('a')
     try:
         fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
@@ -210,9 +216,14 @@ if __name__=='__main__':
     p=argparse.ArgumentParser();p.add_argument('--preflight',action='store_true')
     p.add_argument('--cutoff',default='2026-11-04T23:00:00-08:00')
     p.add_argument('--acceptance-tag',default='')
+    p.add_argument('--gpu',choices=['0','1'],default='1')
+    p.add_argument('--shared-lock',type=Path)
+    p.add_argument('--scenes',default=','.join(SCENES))
     args=p.parse_args()
     if args.acceptance_tag and not re.fullmatch(r'[a-z][a-z0-9_]{0,31}',args.acceptance_tag):
         p.error('acceptance-tag must be a short lowercase identifier')
+    if len(set(args.scenes.split(','))) != len(args.scenes.split(',')) or not set(args.scenes.split(',')).issubset(SCENES):
+        p.error('scenes must be distinct names from the frozen six-scene benchmark')
     try:main(args)
     except DeadlineReached:
         write(RUN/'pipeline.json',dict(status='stopped_at_freeze_deadline',updated_unix=time.time()))

@@ -101,6 +101,11 @@ def main(args):
     if not preflight_path.exists() or read(preflight_path)["status"] != "passed":
         raise RuntimeError("The isolated three-stage preflight did not pass; formal training was not started")
     pipeline.DEADLINE = datetime.fromisoformat(args.cutoff).timestamp()
+    pipeline.GPU = args.gpu
+    if args.shared_lock:
+        pipeline.SHARED_LOCK = args.shared_lock.expanduser().resolve()
+    elif args.gpu == '0':
+        pipeline.SHARED_LOCK = RUN / 'gpu0_resource.lock'
     # Keep the training queue exclusive during the isolated recovery checks.
     with (RUN / "pipeline.lock").open("a") as queue_lock:
         fcntl.flock(queue_lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -149,8 +154,11 @@ def main(args):
               recovery_acceptance=str(RUN / ("protocol/recovery_acceptance" + suffix + ".json"))))
         hold_path.unlink()
     write(state, dict(status="formal_pipeline_running", updated_unix=time.time()))
-    subprocess.run([sys.executable, "-u", str(CODE / "pipeline.py"), "--cutoff", args.cutoff,
-                    "--acceptance-tag", args.acceptance_tag], cwd=ROOT, check=True)
+    command = [sys.executable, "-u", str(CODE / "pipeline.py"), "--cutoff", args.cutoff,
+               "--acceptance-tag", args.acceptance_tag, "--gpu", args.gpu, "--scenes", args.scenes]
+    if args.shared_lock:
+        command += ["--shared-lock", str(args.shared_lock)]
+    subprocess.run(command, cwd=ROOT, check=True)
     final = read(RUN / "pipeline.json")
     write(state, dict(status=final["status"], pipeline=final, updated_unix=time.time()))
 
@@ -160,9 +168,14 @@ if __name__ == "__main__":
     parser.add_argument("--preflight-pid", type=int, default=0)
     parser.add_argument("--cutoff", default="2026-11-04T23:00:00-08:00")
     parser.add_argument("--acceptance-tag", default="")
+    parser.add_argument("--gpu", choices=["0", "1"], default="1")
+    parser.add_argument("--shared-lock", type=Path)
+    parser.add_argument("--scenes", default=','.join(pipeline.SCENES))
     arguments = parser.parse_args()
     if arguments.acceptance_tag and not re.fullmatch(r"[a-z][a-z0-9_]{0,31}", arguments.acceptance_tag):
         parser.error("acceptance-tag must be a short lowercase identifier")
+    if len(set(arguments.scenes.split(','))) != len(arguments.scenes.split(',')) or not set(arguments.scenes.split(',')).issubset(pipeline.SCENES):
+        parser.error("scenes must be distinct names from the frozen six-scene benchmark")
     try:
         main(arguments)
     except pipeline.DeadlineReached:
