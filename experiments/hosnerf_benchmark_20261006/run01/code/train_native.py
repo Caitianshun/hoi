@@ -58,6 +58,8 @@ def arguments() -> argparse.Namespace:
     parser.add_argument("--human-checkpoint", type=Path)
     parser.add_argument("--resume", type=Path)
     parser.add_argument("--max-steps", type=int)
+    parser.add_argument("--stop-after-updates", type=int, default=0,
+                        help="End this segment after N new updates; full max_steps and LR schedule stay unchanged")
     parser.add_argument("--checkpoint-every", type=int, default=2000)
     parser.add_argument("--seed", type=int, default=777)
     parser.add_argument("--device", type=int, default=0,
@@ -86,9 +88,80 @@ def arguments() -> argparse.Namespace:
         parser.error("A nonofficial step budget requires --smoke")
     if args.workers < 0 or args.device < 0:
         parser.error("workers and device must be nonnegative")
+    if args.stop_after_updates < 0:
+        parser.error("stop-after-updates must be nonnegative")
     if args.evaluate_only and (args.stage != 3 or not args.resume):
         parser.error("evaluate-only requires --stage 3 and --resume")
     return args
+
+
+class SamplingCursor:
+    """Resume original sampling order without saving multi-GB ray index arrays.
+
+    Stage 1 generates its entire epoch from NumPy's epoch-start state; stage 2/3
+    RandomSampler generates an epoch using an internal Torch generator. Replay
+    recreates the original iterator and skips only committed training batches.
+    Worker-prefetch RNG is still not claimed to be exactly reproducible.
+    """
+    def __init__(self, np, torch):
+        self.np, self.torch = np, torch
+        self.sampler = None
+        self.pending = None
+
+    def wrap(self, source):
+        cursor = self
+        class WrappedSampler:
+            def __init__(self):
+                self.source = source
+                self.committed = 0
+                self.epoch = 0
+                self.epoch_rng = None
+            def __len__(self):
+                return len(self.source)
+            def __iter__(self):
+                if self.committed >= len(self.source):
+                    self.committed = 0
+                    self.epoch_rng = None
+                    self.epoch += 1
+                if self.epoch_rng is None:
+                    self.epoch_rng = dict(numpy=cursor.np.random.get_state(), torch=cursor.torch.get_rng_state())
+                    iterator = iter(self.source)
+                else:
+                    current_np, current_torch = cursor.np.random.get_state(), cursor.torch.get_rng_state()
+                    cursor.np.random.set_state(self.epoch_rng["numpy"])
+                    cursor.torch.set_rng_state(self.epoch_rng["torch"])
+                    iterator = iter(self.source)
+                    # Force lazy RandomSampler initialization even at cursor=0.
+                    for _ in range(self.committed):
+                        next(iterator)
+                    cursor.np.random.set_state(current_np)
+                    cursor.torch.set_rng_state(current_torch)
+                yield from iterator
+            def state_dict(self):
+                return dict(committed=self.committed, epoch=self.epoch, epoch_rng=self.epoch_rng,
+                            epoch_length=len(self.source))
+            def load_state_dict(self, state):
+                if state["epoch_length"] != len(self.source):
+                    raise RuntimeError("Resumed sampler epoch length differs")
+                self.committed, self.epoch, self.epoch_rng = state["committed"], state["epoch"], state["epoch_rng"]
+        self.sampler = WrappedSampler()
+        if self.pending is not None:
+            self.sampler.load_state_dict(self.pending)
+            self.pending = None
+        return self.sampler
+
+    def state_dict(self):
+        return self.sampler.state_dict() if self.sampler is not None else self.pending
+
+    def load_state_dict(self, state):
+        if self.sampler is not None:
+            self.sampler.load_state_dict(state)
+        else:
+            self.pending = state
+
+    def commit(self):
+        if self.sampler is not None:
+            self.sampler.committed += 1
 
 
 def load_runtime(args):
@@ -126,6 +199,8 @@ def load_runtime(args):
 
     import src.model.mipnerf360.model as official_model
     import src.data.litdata as litdata
+    sampling = SamplingCursor(np, torch)
+    official_model._benchmark_sampling = sampling
     gin.parse_config_file(str(source / STAGES[args.stage][1]))
     gin.bind_parameter("run.max_steps", args.max_steps)
 
@@ -150,6 +225,8 @@ def load_runtime(args):
         samplers.DDPSampler.__init__ = single_sampler_init
         original_loader = data_interface.DataLoader
         def compatible_loader(*positional, **keywords):
+            if "batch_sampler" in keywords:
+                keywords["batch_sampler"] = sampling.wrap(keywords["batch_sampler"])
             if keywords.get("num_workers", 0) == 0:
                 keywords["persistent_workers"] = False
             return original_loader(*positional, **keywords)
@@ -183,9 +260,13 @@ def load_runtime(args):
         from core.data import create_dataset
         def native_loader(configuration, data_type="train"):
             node = configuration[data_type]
+            dataset = create_dataset(configuration, data_type)
+            sampler = None
+            if data_type == "train":
+                sampler = sampling.wrap(torch.utils.data.RandomSampler(dataset))
             return torch.utils.data.DataLoader(
-                create_dataset(configuration, data_type),
-                batch_size=node.batch_size, shuffle=node.shuffle,
+                dataset, sampler=sampler,
+                batch_size=node.batch_size, shuffle=node.shuffle if sampler is None else False,
                 drop_last=node.drop_last, pin_memory=True,
                 persistent_workers=configuration.num_workers > 0,
                 num_workers=configuration.num_workers,
@@ -225,7 +306,8 @@ def input_identity(args, source):
                 validation_during_training=False, idle_render_loaders=False,
                 flow_protocol="prepared fields must use retained training-list predecessor only; first mask all zero",
                 smpl_dependency="published canonical_joints/mesh_infos/cameras; no runtime SMPL network",
-                resume_note="Full Lightning Adam/loop state and main-process Python/NumPy/Torch/CUDA RNG; worker-prefetch and sampler order are not claimed bitwise identical",
+                resume_note="Full Lightning Adam/loop state, main-process Python/NumPy/Torch/CUDA RNG and sampler epoch-start RNG/committed position; worker-prefetch is not claimed bitwise identical",
+                image_access_note="Stage 1's original loader reads all RGB into CPU arrays before splitting; only i_train enters its loss. Human stages construct only the training loader until final evaluation.",
                 adjustments=["dynamic dataset paths", "PL1.9 optimizer hook compatibility",
                              "torch.load full checkpoint compatibility", "NumPy bool dtype alias",
                              "single-device sampler rank", "workers=0 loader compatibility",
@@ -370,10 +452,18 @@ def main():
         return
 
     class FullState(pl.Callback):
+        def on_fit_start(self, trainer, lightning_module):
+            self.segment_start = trainer.global_step
+            self.segment_end = min(args.max_steps, self.segment_start + args.stop_after_updates) if args.stop_after_updates else args.max_steps
+        def on_train_batch_end(self, trainer, lightning_module, outputs, batch, batch_idx):
+            module._benchmark_sampling.commit()
+            if trainer.global_step >= self.segment_end and trainer.global_step < args.max_steps:
+                trainer.should_stop = True
         def on_save_checkpoint(self, trainer, lightning_module, checkpoint):
             checkpoint["benchmark_identity"] = identity
             checkpoint["benchmark_rng"] = dict(python=random.getstate(), numpy=np.random.get_state(),
                    torch=torch.get_rng_state(), cuda=torch.cuda.get_rng_state_all())
+            checkpoint["benchmark_sampling"] = module._benchmark_sampling.state_dict()
         def on_load_checkpoint(self, trainer, lightning_module, checkpoint):
             previous = checkpoint.get("benchmark_identity")
             if previous is None:
@@ -386,6 +476,7 @@ def main():
             np.random.set_state(rng["numpy"])
             torch.set_rng_state(rng["torch"])
             torch.cuda.set_rng_state_all(rng["cuda"])
+            module._benchmark_sampling.load_state_dict(checkpoint["benchmark_sampling"])
         def on_before_backward(self, trainer, lightning_module, loss):
             if not torch.isfinite(loss).all():
                 raise FloatingPointError("Nonfinite native loss; optimizer was not advanced")
@@ -397,9 +488,10 @@ def main():
                 monitor=None, save_top_k=1, save_last=True,
                 every_n_train_steps=args.checkpoint_every,
                 save_on_train_epoch_end=False, save_weights_only=False)
+    full_state = FullState()
     trainer = pl.Trainer(accelerator="gpu", devices=[args.device], strategy="auto",
               max_steps=args.max_steps, max_epochs=-1, precision=32,
-              callbacks=[FullState(), checkpoint],
+              callbacks=[full_state, checkpoint],
               logger=CSVLogger(str(args.output), name="train_metrics"),
               log_every_n_steps=args.log_every, limit_val_batches=0,
               num_sanity_val_steps=0, enable_progress_bar=False,
@@ -418,16 +510,22 @@ def main():
         eval_trainer = model._trainer
     else:
         trainer.fit(model, datamodule=data, ckpt_path=str(args.resume) if args.resume else None)
-        if trainer.global_step != args.max_steps:
+        complete = trainer.global_step == args.max_steps
+        if not complete and (not args.stop_after_updates or trainer.global_step != full_state.segment_end):
             raise RuntimeError(f"Native optimization stopped at {trainer.global_step}/{args.max_steps}")
-        trainer.save_checkpoint(str(args.output / "final.ckpt"), weights_only=False)
+        if complete:
+            trainer.save_checkpoint(str(args.output / "final.ckpt"), weights_only=False)
+        trainer.save_checkpoint(str(args.output / "last.ckpt"), weights_only=False)
         trainer.save_checkpoint(str(args.output / "checkpoints/last.ckpt"), weights_only=False)
         eval_trainer = trainer
-    result = dict(status="completed", stage=args.stage, formal=not args.smoke,
+    complete = eval_trainer.global_step == args.max_steps
+    result = dict(status="completed" if complete else "segment_complete", stage=args.stage, formal=not args.smoke,
+                  complete=complete, segment_updates=eval_trainer.global_step-full_state.segment_start if not args.evaluate_only else 0,
                   global_step=eval_trainer.global_step, wall_seconds=time.monotonic()-start,
                   peak_allocated_bytes=torch.cuda.max_memory_allocated(args.device),
-                  final_checkpoint=str(args.resume if args.evaluate_only else args.output / "final.ckpt"))
-    if args.stage == 3 and not args.no_evaluate and not args.smoke:
+                  final_checkpoint=str(args.resume if args.evaluate_only else args.output / ("final.ckpt" if complete else "last.ckpt")))
+    write_json(args.output / "receipt.json", result)
+    if complete and args.stage == 3 and not args.no_evaluate and not args.smoke:
         result["evaluation"] = evaluate_final(args, runtime, model, eval_trainer, identity)
     write_json(args.output / "status.json", result)
     print("HOS_COMPLETED", json.dumps(result), flush=True)
