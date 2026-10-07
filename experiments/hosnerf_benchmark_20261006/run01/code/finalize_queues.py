@@ -28,6 +28,9 @@ SCENES = ['Backpack', 'Tennis', 'Suitcase', 'Playground', 'Dance', 'Lounge']
 STEPS = {1: 500000, 2: 400000, 3: 200000}
 OWNERS = {'local_gpu0': ['Backpack', 'Suitcase', 'Playground'],
           'local_gpu1': ['Dance', 'Lounge'], 'a100_return': ['Tennis']}
+UNITS = {'local_gpu0': 'hoi-hosnerf-local-gpu0-20261007.service',
+         'local_gpu1': 'hoi-hosnerf-local-gpu1-20261007.service',
+         'a100_return': 'hoi-hosnerf-a100-return-20261006.service'}
 TRAIN_SHA = '10c79ca980eaf31dc1a40ff015e23008d719ba4f6aa3263a67a8fd05ac8efdac'
 CONFIG_SHA = '45e25b050a799f50f2ca59bfd2aaf618ed79e1ab709c5b9dce9c33c513775ad7'
 
@@ -76,12 +79,37 @@ def pidfd(pid):
     return descriptor
 
 
+def unit_identity(name):
+    output = subprocess.check_output(['systemctl', '--user', 'show', UNITS[name],
+             '--property=MainPID,InvocationID,ExecStart,ActiveState,Result'], text=True)
+    values = dict(line.split('=', 1) for line in output.splitlines() if '=' in line)
+    pid = int(values['MainPID'])
+    if pid <= 0 or values.get('ActiveState') not in {'active', 'activating'}:
+        raise RuntimeError(f'{UNITS[name]} has no active worker to attach')
+    args = Path(f'/proc/{pid}/cmdline').read_bytes().split(b'\0')
+    scripts = {}
+    for item in args:
+        if item.endswith(b'.py'):
+            path = Path(os.fsdecode(item)).resolve()
+            if not path.is_relative_to(RUN / 'code'):
+                raise RuntimeError('Service uses a Python entry outside this experiment')
+            scripts[str(path)] = sha(path)
+    if not scripts or not values.get('InvocationID'):
+        raise RuntimeError('Service entry/source identity is missing')
+    return dict(unit=UNITS[name], pid=pid, start_ticks=start_ticks(pid), boot_id=boot(),
+                invocation_id=values['InvocationID'], exec_start=values['ExecStart'],
+                entry_sources=scripts)
+
+
 def capture(args):
     targets = {}
     for name, pid in [('local_gpu0', args.local0_pid), ('local_gpu1', args.local1_pid),
                       ('a100_return', args.return_pid)]:
         if pid <= 0:
             raise ValueError('All three live worker PIDs are required for capture')
+        service = unit_identity(name)
+        if service['pid'] != pid:
+            raise RuntimeError('Requested PID does not belong to the specified user unit')
         tick = start_ticks(pid)
         descriptor = pidfd(pid)
         try:
@@ -89,7 +117,7 @@ def capture(args):
                 raise RuntimeError('Process identity changed during capture')
         finally:
             os.close(descriptor)
-        targets[name] = dict(pid=pid, start_ticks=tick, boot_id=boot())
+        targets[name] = dict(service, start_ticks=tick)
     if len({item['pid'] for item in targets.values()}) != 3:
         raise ValueError('The three worker PIDs must be distinct')
     value = dict(schema=1, captured_unix=time.time(), owners=OWNERS, targets=targets,
@@ -98,6 +126,31 @@ def capture(args):
         raise RuntimeError('Refusing to replace an existing process attachment')
     write(args.targets, value)
     print(json.dumps(dict(status='live_cpu_targets_captured', targets=str(args.targets), gpu_tasks_launched=0)), flush=True)
+
+
+def reattach_after_reboot(attachment, target_path):
+    if all(item['boot_id'] == boot() for item in attachment['targets'].values()):
+        return attachment
+    replacement = dict(attachment)
+    replacement['targets'] = {}
+    replacement['reattached_unix'] = time.time()
+    replacement['previous_targets_sha256'] = sha(target_path)
+    for name, old in attachment['targets'].items():
+        current = unit_identity(name)
+        if current['invocation_id'] == old['invocation_id']:
+            raise RuntimeError('Reboot attachment requires a genuinely new service invocation')
+        if current['exec_start'] != old['exec_start'] or current['entry_sources'] != old['entry_sources']:
+            raise RuntimeError('Service entry or source changed across reboot; no automatic attachment')
+        replacement['targets'][name] = current
+    archive = OPS / 'attachment_history' / f"{attachment['targets']['local_gpu0']['boot_id']}_{replacement['previous_targets_sha256']}.json"
+    if archive.exists():
+        if sha(archive) != sha(target_path):
+            raise RuntimeError('Previous attachment archive changed')
+    else:
+        archive.parent.mkdir(parents=True, exist_ok=True)
+        archive.write_bytes(target_path.read_bytes())
+    write(target_path, replacement)
+    return replacement
 
 
 def wait_targets(targets, event_sink):
@@ -304,6 +357,7 @@ def main(args):
         assert attachment['owners'] == OWNERS and set(attachment['targets']) == set(OWNERS)
         assert attachment['coordinator_sha256'] == sha(__file__)
         assert attachment['assignment_sha256'] == sha(RUN / 'protocol/scene_assignment.json')
+        attachment = reattach_after_reboot(attachment, args.targets)
         def sink(value):
             write(OPS / 'state.json', dict(value, targets=str(args.targets), targets_sha256=sha(args.targets)))
         exits = wait_targets(attachment['targets'], sink)
