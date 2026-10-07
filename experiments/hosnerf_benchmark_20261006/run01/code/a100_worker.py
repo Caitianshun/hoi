@@ -112,8 +112,42 @@ def verify_identity(path, full_data=False):
         scene = read(RUN / 'protocol/dataset_manifest.json')['scenes'][SCENE]
         assert len(scene['train_ids']) == 285 and len(scene['test_ids']) == 16
         for row in scene['files']:
-            assert sha(DATA / SCENE / row['path']) == row['sha256'], row['path']
+            actual_sha = sha(DATA / SCENE / row['path'])
+            if row['path'] == 'cameras_scaleworld.pkl' and actual_sha != row['sha256']:
+                verify_generated_camera(actual_sha, path)
+            else:
+                assert actual_sha == row['sha256'], row['path']
     return expected
+
+
+def verify_generated_camera(digest, identity_path):
+    """Allow only the generated camera file bound to an audited own checkpoint."""
+    import torch
+    proof = read(STATE / 'generated_camera_identity.json')
+    assert proof['camera_sha256'] == digest and proof['training_script_sha256'] == TRAIN_SHA
+    assert proof['source_identity_sha256'] == sha(identity_path) and proof['scene'] == SCENE
+    allowed = {RUN / f'runs/formal/{SCENE}/stage{stage}/last.ckpt' for stage in [1, 2, 3]}
+    allowed.update(RUN / f'runs/smoke_a100_r2/{SCENE}/stage{stage}/last.ckpt' for stage in [1, 2, 3])
+    allowed.update(STATE / f'acceptance/stage{stage}/step000000008.ckpt' for stage in [1, 2, 3])
+    validated = False
+    for row in proof['checkpoints']:
+        checkpoint = Path(row['path'])
+        assert checkpoint in allowed, 'Camera provenance points outside this worker'
+        if not checkpoint.is_file() or sha(checkpoint) != row['sha256']:
+            continue
+        payload = torch.load(checkpoint, map_location='cpu', weights_only=False)
+        native = payload['benchmark_identity']
+        assert native['training_script_sha256'] == TRAIN_SHA and native['scene'] == SCENE
+        assert native['data_root'] == str(DATA) and int(payload['global_step']) == row['global_step']
+        assert len(payload['optimizer_states']) == 1 and payload['optimizer_states'][0]['state']
+        assert payload['benchmark_sampling']['epoch_rng'] is not None and payload['benchmark_rng']['cuda']
+        assert sha(checkpoint) == row['sha256']  # Detect replacement during the CPU load.
+        assert hashlib.sha256(json.dumps(native, sort_keys=True).encode()).hexdigest() == row['native_identity_sha256']
+        if native['stage'] == 3:
+            assert native['metadata_sha256']['cameras_scaleworld.pkl'] == digest
+        validated = True
+        break
+    assert validated, 'No current own complete checkpoint verifies the generated camera identity'
 
 
 def checkpoint_audit(args):
@@ -208,7 +242,9 @@ def checkpoint_audit(args):
         checkpoint=str(args.audit_checkpoint), checkpoint_sha256=sha(args.audit_checkpoint),
         training_script_sha256=TRAIN_SHA, groups=len(optimizer['param_groups']),
         populated_adam_states=len(optimizer['state']), finite_state=True, full_rng=True,
-        sampler_committed=int(sampling['committed']), short_continuation_checked=bool(args.before))
+        sampler_committed=int(sampling['committed']), short_continuation_checked=bool(args.before),
+        native_identity_sha256=hashlib.sha256(json.dumps(identity, sort_keys=True).encode()).hexdigest(),
+        generated_camera_sha256=sha(DATA / SCENE / 'cameras_scaleworld.pkl'))
     write(args.output, result)
     print(json.dumps(result), flush=True)
 
@@ -263,7 +299,8 @@ class Worker:
                 raise OSError(ctypes.get_errno(), f'inotify_add_watch failed: {parent}')
             # Install the watch before rechecking, so a creation/removal between
             # the caller's decision and registration cannot lose the wake-up.
-            if (not Path(path).exists()) if until_absent else Path(path).exists():
+            ready = not Path(path).exists() if until_absent else Path(path).exists()
+            if ready:
                 return
             self.deadline_check()
             select.select([descriptor], [], [], max(0, self.deadline - time.time()))
@@ -435,6 +472,17 @@ class Worker:
                   '--official', str(OFFICIAL), '--config-dir', str(directory), '--expect-step', str(step),
                   '--output', str(lr)], label + '_lr')
         assert read(output)['status'] == read(lr)['status'] == 'passed'
+        checked = read(output)
+        camera = STATE / 'generated_camera_identity.json'
+        proof = read(camera) if camera.exists() else dict(scene=SCENE, training_script_sha256=TRAIN_SHA,
+                    source_identity_sha256=sha(self.args.identity), camera_sha256=checked['generated_camera_sha256'], checkpoints=[])
+        assert proof['camera_sha256'] == checked['generated_camera_sha256'], 'Generated camera identity changed after its first successful native stage'
+        assert proof['source_identity_sha256'] == sha(self.args.identity)
+        proof['checkpoints'] = [row for row in proof['checkpoints'] if row['path'] != str(checkpoint)]
+        proof['checkpoints'].append(dict(path=str(checkpoint), sha256=checked['checkpoint_sha256'],
+                   global_step=checked['global_step'], native_identity_sha256=checked['native_identity_sha256'],
+                   state_audit=str(output), state_audit_sha256=sha(output), lr_audit=str(lr), lr_audit_sha256=sha(lr)))
+        write(camera, proof)
         return dict(state=str(output), state_sha256=sha(output), lr=str(lr), lr_sha256=sha(lr), checkpoint_sha256=sha(checkpoint))
 
     def train_command(self, stage, output, updates, smoke=False, resume=None):
@@ -492,6 +540,7 @@ class Worker:
                     assert sha(saved) == sha(last)
                 else:
                     shutil.copy2(last, saved)
+                self.audit(saved, stage, False, 8, directory, f'stage{stage}_immutable_fresh8')
                 self.gpu(self.train_command(stage, directory, 2, smoke=True, resume=saved), f'Tennis_stage{stage}_resume8to10')
                 self.deadline_check()
             assert saved.is_file()
@@ -545,7 +594,7 @@ class Worker:
                     checkpoint_sha256=metrics['identity']['checkpoint_sha256'])
 
     def terminal(self, status, evaluation=None, error=None):
-        roots = [STATE, RUN / f'runs/formal/{SCENE}', RUN / f'runs/smoke_a100_r2/{SCENE}', RUN / f'evaluation/{SCENE}']
+        roots = [STATE, RUN / f'runs/formal/{SCENE}', RUN / f'runs/smoke_a100_r2/{SCENE}', RUN / f'evaluation/{SCENE}', DATA / SCENE / 'images_flow']
         skip = {'state.json', 'active_process.json', 'resource_owner.json', 'terminal_receipt.json',
                 'terminal_files.json', 'worker.log', 'queue.lock', 'gpu1_resource.lock', 'HOLD_DISPATCH.json'}
         rows = []
@@ -554,6 +603,10 @@ class Worker:
                 for path in sorted(directory.rglob('*')):
                     if path.is_file() and path.name not in skip and not path.name.endswith('.tmp'):
                         rows.append(dict(path=str(path.relative_to(RUN)), bytes=path.stat().st_size, sha256=sha(path)))
+        for path in [DATA / SCENE / 'cameras_scaleworld.pkl', RUN / f'protocol/{SCENE}_flow.json',
+                     RUN / 'protocol/dataset_manifest.json', RUN / 'configs/benchmark.json']:
+            if path.is_file():
+                rows.append(dict(path=str(path.relative_to(RUN)), bytes=path.stat().st_size, sha256=sha(path)))
         manifest = STATE / 'terminal_files.json'
         write(manifest, dict(status=status, files=rows, finished_unix=time.time()))
         receipt = dict(status=status, scene=SCENE, host='a100-train', physical_gpu=GPU,
@@ -630,6 +683,21 @@ def main():
             assert read(args.identity) == identity, 'Refusing to overwrite a different frozen worker identity'
         else:
             write(args.identity, identity)
+        snapshot = STATE / 'source_snapshot'
+        for name, digest in identity['sources'].items():
+            target = snapshot / 'code' / name
+            target.parent.mkdir(parents=True, exist_ok=True)
+            if target.exists():
+                assert sha(target) == digest, 'Refusing to overwrite a source snapshot'
+            else:
+                shutil.copy2(CODE / name, target)
+        for relative in ['configs/benchmark.json', 'protocol/dataset_manifest.json']:
+            target = snapshot / relative
+            target.parent.mkdir(parents=True, exist_ok=True)
+            if target.exists():
+                assert sha(target) == sha(RUN / relative)
+            else:
+                shutil.copy2(RUN / relative, target)
     if not args.run:
         identity = verify_identity(args.identity, full_data=True)
         report = dict(status='cpu_check_passed', gpu_tasks_launched=0, identity=str(args.identity),
