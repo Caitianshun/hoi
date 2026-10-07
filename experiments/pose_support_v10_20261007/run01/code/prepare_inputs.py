@@ -256,10 +256,10 @@ def prepare_scene(scene: str, run: Path, updates: int, seed: int) -> dict:
                              "rgb": np.asarray(Image.open(image_path).convert("RGB"), dtype=np.float32) / 255.,
                              "mask": np.asarray(Image.open(mask_path).convert("L"))})
     support_seed = initialize_seed_colors(support_seed, color_frames, train_ids)
-    color_observations = {record["frame_id"]: record for record in
+    color_observations = {int(record["frame_id"]): record for record in
                           support_seed.setdefault("metadata", {}).get("color_sources", [])}
     support_seed["metadata"]["color_sources"] = [
-        dict(color_observations.get(frames[index]["frame_id"], {}),
+        dict(color_observations.get(int(frames[index]["frame_id"]), {}),
              frame_id=frames[index]["frame_id"], rgb=identity(Path(frames[index]["rgb_path"])),
              mask=identity(Path(frames[index]["mask_path"]))) for index in chosen]
     figure_manifest = json.loads((ROOT / "experiments/local_dynamic_v9_20260929/run01/scenes" /
@@ -369,6 +369,13 @@ def main() -> int:
                         "support_seed", "RGB_schedule", "coordinate_audit"):
                 if identity(Path(prior[key]["path"])) != prior[key]:
                     raise ValueError(f"frozen {scene} {key} changed; refusing overwrite")
+            schedule = json.loads(Path(prior["RGB_schedule"]["path"]).read_text())
+            configuration_path = args.run / "configs/v10.json"
+            configuration = json.loads(configuration_path.read_text()) if configuration_path.exists() else {}
+            if schedule["seed"] != args.rgb_seed or schedule["updates"] != args.updates:
+                raise ValueError("cached RGB schedule differs from requested seed or updates")
+            if prior["support_seed_rng"] != int(configuration.get("support_seed", 20261007)):
+                raise ValueError("cached support RNG differs from frozen configuration")
             print(json.dumps({"scene": scene, "status": "reused_frozen_inputs"}), flush=True)
             continue
         result = prepare_scene(scene, args.run.resolve(), args.updates, args.rgb_seed)
