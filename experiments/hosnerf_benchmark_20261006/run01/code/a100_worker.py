@@ -17,6 +17,7 @@ import json
 import os
 from pathlib import Path
 import select
+import signal
 import shutil
 import struct
 import subprocess
@@ -81,6 +82,24 @@ def pidfd_open(pid):
         raise OSError(error, os.strerror(error))
     os.set_inheritable(descriptor, False)
     return descriptor
+
+
+def stop_owned_process(child):
+    """Reap only a process group created by this worker before writing terminal state."""
+    if child is None or child.poll() is not None:
+        return
+    try:
+        os.killpg(child.pid, signal.SIGTERM)
+    except ProcessLookupError:
+        pass
+    try:
+        child.wait(timeout=30)
+    except subprocess.TimeoutExpired:
+        try:
+            os.killpg(child.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        child.wait(timeout=30)
 
 
 def frozen_identity():
@@ -322,6 +341,8 @@ class Worker:
             if ready():
                 return
             child_name = path.relative_to(parent).parts[0]
+            if parent != path.parent and (parent / child_name).is_dir():
+                return  # A missing ancestor appeared before watch registration.
             while True:
                 self.deadline_check()
                 available, _, _ = select.select([descriptor], [], [], max(0, self.deadline - time.time()))
@@ -415,10 +436,15 @@ class Worker:
                    PYTHONDONTWRITEBYTECODE='1', TORCH_HOME='/home/ubuntu/.cache/torch', MPLBACKEND='Agg')
         started = time.time()
         with log.open('a') as stream:
-            result = subprocess.run(command, cwd=ROOT, env=env, stdout=stream, stderr=subprocess.STDOUT)
-        self.ledger(dict(task=label, mode='cpu', command=command, exit_code=result.returncode,
+            child = subprocess.Popen(command, cwd=ROOT, env=env, stdout=stream, stderr=subprocess.STDOUT, start_new_session=True)
+            try:
+                code = child.wait()
+            except BaseException:
+                stop_owned_process(child)
+                raise
+        self.ledger(dict(task=label, mode='cpu', command=command, exit_code=code,
                         started_unix=started, ended_unix=time.time(), log=str(log)))
-        if result.returncode:
+        if code:
             raise RuntimeError(f'CPU audit failed: {label}; see {log}')
 
     def ledger(self, receipt):
@@ -482,11 +508,15 @@ class Worker:
                 self.status('running', task=label, command=command, readings=[first, second], log=str(log))
                 with log.open('a') as stream:
                     child = subprocess.Popen(command, cwd=ROOT, env=env, stdout=stream, stderr=subprocess.STDOUT,
-                            pass_fds=(resource.fileno(), self.queue_lock.fileno()))
-                    write(STATE / 'resource_owner.json', dict(worker_pid=os.getpid(), child_pid=child.pid, task=label,
-                         physical_gpu=GPU, uuid=second['uuid'], started_unix=started))
-                    write(STATE / 'active_process.json', dict(pid=child.pid, task=label, started_unix=started))
-                    code = child.wait()
+                            pass_fds=(resource.fileno(), self.queue_lock.fileno()), start_new_session=True)
+                    try:
+                        write(STATE / 'resource_owner.json', dict(worker_pid=os.getpid(), child_pid=child.pid, task=label,
+                             physical_gpu=GPU, uuid=second['uuid'], started_unix=started))
+                        write(STATE / 'active_process.json', dict(pid=child.pid, task=label, started_unix=started))
+                        code = child.wait()
+                    except BaseException:
+                        stop_owned_process(child)
+                        raise
                 self.ledger(dict(task=label, mode='gpu', command=command, exit_code=code, physical_gpu=GPU,
                      hardware=second, readings=[first, second], external_clearance=external,
                      started_unix=started, ended_unix=time.time(), seconds=time.time()-started, log=str(log)))
