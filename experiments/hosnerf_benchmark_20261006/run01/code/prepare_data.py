@@ -104,9 +104,9 @@ def finite_array(value, shape: tuple[int, ...], label: str) -> None:
 
 
 def audit_scene(folder: Path, scene: str) -> dict:
-    files = sorted(p for p in folder.rglob("*") if p.is_file())
     rgb = sorted((folder / "images").glob("*.png"))
     mask = sorted((folder / "masks").glob("*.png"))
+    files = sorted(rgb + mask + [folder / name for name in METADATA])
     ids = [p.stem for p in rgb]
     mask_ids = [p.stem for p in mask]
     if len(ids) < 16 or len(set(ids)) != len(ids) or ids != mask_ids:
