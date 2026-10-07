@@ -387,6 +387,13 @@ def gpu_reading():
 
 def evaluate(receipt, snapshot, bundle):
     identity = json.loads(base64.b64decode(bundle['identity']['base64']))
+    stage_identity = read(snapshot / 'runs/formal/Tennis/stage3/identity.json')
+    if stage_identity['data_root'] != str(REMOTE_RUN / 'data'):
+        raise RuntimeError('Stage-3 training origin is not the isolated remote data root')
+    if stage_identity['flow_manifest_sha256'] != sha(snapshot / 'protocol/Tennis_flow.json'):
+        raise RuntimeError('Returned flow protocol differs from stage-3 frozen training identity')
+    if stage_identity['benchmark_config_sha256'] != sha(snapshot / 'configs/benchmark.json'):
+        raise RuntimeError('Returned configuration differs from stage-3 training identity')
     evaluator = RUN / 'code/evaluate_native.py'
     if sha(evaluator) != identity['sources']['evaluate_native.py']:
         raise RuntimeError('Local evaluator differs from frozen remote evaluator')
@@ -394,6 +401,32 @@ def evaluate(receipt, snapshot, bundle):
         if sha(ROOT / 'third_party/HOSNeRF' / name) != digest:
             raise RuntimeError('Local official HOSNeRF source differs from training source')
     data_root = adapt_data(snapshot)
+    for name, digest in stage_identity['metadata_sha256'].items():
+        if sha(data_root / 'Tennis' / name) != digest:
+            raise RuntimeError('Evaluation adapter metadata differs from stage-3 training identity: ' + name)
+    flow = read(snapshot / 'protocol/Tennis_flow.json')
+    pairs = {row['current']: row for row in flow['pairs']}
+    train_ids = stage_identity['train_ids']
+    if (flow['status'] != 'complete' or flow['identity']['heldout_rgb_read']
+            or len(pairs) != len(train_ids) or len(flow['pairs']) != len(train_ids)
+            or flow['identity']['train_ids'] != train_ids
+            or flow['identity']['test_ids'] != stage_identity['test_ids']):
+        raise RuntimeError('Returned flow cache does not follow the frozen train-only split')
+    for i, frame in enumerate(train_ids):
+        row = pairs[frame]
+        previous = train_ids[i-1] if i else None
+        if (row['previous'] != previous
+                or row['cache_sha256'] != sha(data_root / 'Tennis/images_flow' / (frame + '_bwd.npz'))
+                or row['source_rgb_sha256'] != sha(data_root / 'Tennis/images' / (frame + '.png'))
+                or row['previous_rgb_sha256'] != (sha(data_root / 'Tennis/images' / (previous + '.png')) if previous else None)):
+            raise RuntimeError('Returned flow pair/input identity mismatch: ' + frame)
+    write(RETURN / 'remote_to_local_source_mapping.json', dict(
+          remote_training_data_root=stage_identity['data_root'], local_evaluation_data_root=str(data_root),
+          stage3_training_identity=str(snapshot / 'runs/formal/Tennis/stage3/identity.json'),
+          stage3_training_identity_sha256=sha(snapshot / 'runs/formal/Tennis/stage3/identity.json'),
+          flow_protocol=str(snapshot / 'protocol/Tennis_flow.json'), flow_protocol_sha256=sha(snapshot / 'protocol/Tennis_flow.json'),
+          flow_pairs_verified=len(pairs), original_remote_records_rewritten=False,
+          checkpoint_benchmark_identity_rewritten=False, metadata_content_sha256_verified=True))
     checkpoint = snapshot / 'runs/formal/Tennis/stage3/final.ckpt'
     output = RUN / 'evaluation/Tennis'
     if output.exists() and any(output.iterdir()):
