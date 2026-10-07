@@ -245,7 +245,7 @@ class Worker:
             for descriptor in descriptors:
                 os.close(descriptor)
 
-    def wait_file_event(self, path):
+    def wait_file_event(self, path, until_absent=False):
         """Wait for creation/replacement using inotify, including missing parents."""
         parent = Path(path).parent
         while not parent.is_dir():
@@ -261,6 +261,10 @@ class Worker:
             watch = libc.inotify_add_watch(descriptor, os.fsencode(parent), 0x00000FCE)
             if watch < 0:
                 raise OSError(ctypes.get_errno(), f'inotify_add_watch failed: {parent}')
+            # Install the watch before rechecking, so a creation/removal between
+            # the caller's decision and registration cannot lose the wake-up.
+            if (not Path(path).exists()) if until_absent else Path(path).exists():
+                return
             self.deadline_check()
             select.select([descriptor], [], [], max(0, self.deadline - time.time()))
             self.deadline_check()
@@ -272,7 +276,10 @@ class Worker:
         for arm in ['R', 'G', 'RG']:
             directory = EXTERNAL_RUN / f'runs/r2_{arm}'
             receipt = directory / 'complete.json'
-            if not receipt.is_file() or (directory / 'failed.json').exists():
+            if (directory / 'failed.json').exists():
+                missing.append(directory / 'failed.json')
+                continue
+            if not receipt.is_file():
                 missing.append(receipt)
                 continue
             data = read(receipt)
@@ -348,12 +355,12 @@ class Worker:
             hold = STATE / 'HOLD_DISPATCH.json'
             if hold.exists():
                 self.status('waiting_for_coordinator_release', task=label, hold=read(hold))
-                self.wait_file_event(hold)
+                self.wait_file_event(hold, until_absent=True)
                 continue
             external, missing, external_pids = self.external_ready()
             if missing:
                 self.status('waiting_for_existing_4dsr_queue', task=label, missing=[str(path) for path in missing])
-                self.wait_file_event(missing[0])
+                self.wait_file_event(missing[0], until_absent=missing[0].name == 'failed.json')
                 continue
             if external_pids:
                 self.status('waiting_for_existing_process_exit', task=label, pids=external_pids)
