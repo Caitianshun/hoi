@@ -235,7 +235,11 @@ def prepare_scene(scene: str, run: Path, updates: int, seed: int) -> dict:
              "metadata_container_access": "published pickle dictionaries are deserialized as containers; only train-frame pose/root fields are indexed, used or serialized into this cache; no development pose field is queried",
              "heldout_optimization_fields_used": [], "heldout_color_fields_used": []}
     adapter = PosePriorAdapter(cache)
-    support_seed = build_joint_only_seed_cache(canonical, seed=12345, num_points=20000, grid_size=64)
+    configuration = (json.loads((run / "configs/v10.json").read_text())
+                     if (run / "configs/v10.json").exists() else {})
+    support_random_seed = int(configuration.get("support_seed", 20261007))
+    support_seed = build_joint_only_seed_cache(canonical, seed=support_random_seed,
+                                              num_points=20000, grid_size=64)
     # Uniform in source frame time, snapped to the closest available training frame.
     numeric_ids = np.asarray([int(fid) for fid in train_ids])
     chosen = sorted(set(int(np.argmin(abs(numeric_ids - time))) for time in
@@ -252,9 +256,12 @@ def prepare_scene(scene: str, run: Path, updates: int, seed: int) -> dict:
                              "rgb": np.asarray(Image.open(image_path).convert("RGB"), dtype=np.float32) / 255.,
                              "mask": np.asarray(Image.open(mask_path).convert("L"))})
     support_seed = initialize_seed_colors(support_seed, color_frames, train_ids)
-    support_seed.setdefault("metadata", {})["color_sources"] = [
-        {"frame_id": frames[index]["frame_id"], "rgb": identity(Path(frames[index]["rgb_path"])),
-         "mask": identity(Path(frames[index]["mask_path"]))} for index in chosen]
+    color_observations = {record["frame_id"]: record for record in
+                          support_seed.setdefault("metadata", {}).get("color_sources", [])}
+    support_seed["metadata"]["color_sources"] = [
+        dict(color_observations.get(frames[index]["frame_id"], {}),
+             frame_id=frames[index]["frame_id"], rgb=identity(Path(frames[index]["rgb_path"])),
+             mask=identity(Path(frames[index]["mask_path"]))) for index in chosen]
     figure_manifest = json.loads((ROOT / "experiments/local_dynamic_v9_20260929/run01/scenes" /
                                   scene / "figure_manifest.json").read_text())
     fixed_train = list(dict.fromkeys(item["frame_id"] for item in figure_manifest["figures"]
@@ -328,7 +335,8 @@ def prepare_scene(scene: str, run: Path, updates: int, seed: int) -> dict:
               "coordinate_audit": identity(protocol / "coordinate_audit.json"),
               "train_frame_ids": train_ids, "retained_frame_ids": heldout_ids,
               "fixed_train_frame_ids": fixed_train, "uniform_color_frame_ids": [frames[index]["frame_id"] for index in chosen],
-              "seed_points": int(len(support_seed["u"])), "optimization_updates": 0,
+              "seed_points": int(len(support_seed["u"])), "support_seed_rng": support_random_seed,
+              "optimization_updates": 0,
               "native_camera_substitution": False,
               "extra_method_condition": "P/PQ additionally use published training poses and scene canonical skeleton; C does not",
               "query_conditions": "frame_id and frozen query K/w2c; body pose from train-cache interpolation only; no query mask used for synthesis",

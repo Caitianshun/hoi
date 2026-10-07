@@ -121,10 +121,11 @@ def numeric_csv(path):
 
 def historical_rows(scene):
     path = ROOT / config()["scenes"][scene]["v9_dir"] / "metrics_per_frame.csv"
+    source = identity(path)
     rows = [r for r in numeric_csv(path) if r["run"] in ["U", "Q", "Q0"]]
     for row in rows:
         row.update(scene=scene, historical=True, historical_metrics_reused=True,
-            metric_source_path=str(path), metric_source_sha256=identity(path)["sha256"])
+            metric_source_path=str(path), metric_source_sha256=source["sha256"])
     return rows
 
 
@@ -141,6 +142,10 @@ def render_index(scene, arm, freeze):
     assert manifest["status"] == "completed"
     reference = manifest.get("freeze", manifest.get("all_finals_freeze"))
     assert reference["sha256"] == freeze["sha256"]
+    assert identity(checked(reference))["sha256"] == freeze["sha256"]
+    state_asset = manifest["checkpoint"]; checked(state_asset)
+    frozen_assets = read(freeze["path"])["assets"]
+    assert any(a["sha256"] == state_asset["sha256"] and Path(a["path"]).resolve() == Path(state_asset["path"]).resolve() for a in frozen_assets), "Rendered checkpoint was not frozen"
     assert manifest.get("optimization_updates", 0) == 0
     rows = manifest.get("rows", manifest.get("frames")); index = {(r["split"], r["frame_id"]):r for r in rows}
     cfg = config()["scenes"][scene]

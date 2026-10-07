@@ -206,6 +206,15 @@ def package():
             elif path.suffix in [".jpg",".png"] and "figures" in path.parts:add(path)
             elif path.suffix==".npz" and "feedback_arrays" in path.parts:add(path)
     for name in ["pose_prior_adapter.py","pose_support_gaussians.py","region_reconstruction.py"]:add(ROOT/"hoi_modules"/name,"source/hoi_modules/"+name)
+    dependencies={
+        "baseline_protocol_calibration_20260927":["adapter_4dgs.py","evaluate_frozen.py","build_report_docx.py","summarize_existing.py"],
+        "numerical_stability_calibration_20260927":["common.py","evaluate_and_report.py"],
+        "foreground_stage_calibration_20260927":["build_report_docx.py"],
+        "aux_ref_object_reconstruction_20260924":["evaluate_aux.py"]}
+    for experiment,names in dependencies.items():
+        for name in names:
+            path=ROOT/"experiments"/experiment/"run01/code"/name
+            add(path,"source/"+path.relative_to(ROOT).as_posix())
     for scene,cfg in config()["scenes"].items():
         for name in ["manifest.json","evaluation_manifest.json"]:add(ROOT/cfg["input_dir"]/name,"inputs/"+scene+"/"+name)
         add(ROOT/cfg["historical_dir"]/"protocol/fixed_examples.json","inputs/"+scene+"/fixed_examples.json")
