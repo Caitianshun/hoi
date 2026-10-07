@@ -31,7 +31,7 @@ METADATA = (
     "poses_bounds.npy", "cameras.pkl", "cameras_scaleworld.pkl",
     "mesh_infos.pkl", "canonical_joints.pkl", "transitions_times.json",
 )
-# Six files are shipped with each public sequence (seven with .DS_Store, omitted).
+# Only the six published metadata files are selected; platform metadata is omitted.
 PNG_NAME = re.compile(r"^[0-9]+\.png$")
 
 
@@ -202,6 +202,10 @@ def prepare_scene(archive: Path, destination: Path, scene: str) -> dict:
             raise FileExistsError(f"Existing prepared data changed; refusing to replace: {destination}")
         result = current
         result["reuse"] = "byte-identical original prepared inputs"
+        with zipfile.ZipFile(archive) as z:
+            result["ignored_archive_members"] = [info.filename for info in z.infolist()
+                                                if not info.is_dir() and
+                                                selected_member(info, scene) is None]
     else:
         staging = Path(tempfile.mkdtemp(prefix=f".{scene}.prepare-", dir=destination.parent))
         try:

@@ -104,7 +104,7 @@ def train(scene, stage, smoke=False):
     output.mkdir(parents=True,exist_ok=True)
     command=[str(PYTHON),'-u',str(CODE/'train_native.py'),'--stage',str(stage),'--scene',scene,
              '--data-root',str(RUN/'data'),'--output',str(output),'--max-steps',str(STEPS[stage]),
-             '--checkpoint-every','2000','--stop-after-updates',str(8 if smoke else 2000)]
+             '--checkpoint-every','2000','--stop-after-updates',str(8 if smoke else 2000), '--no-evaluate', '--workers','0']
     if smoke:command+=['--smoke']
     if stage==3:
         command+=['--background-checkpoint',str(checkpoint(output.parent/'stage1')),
@@ -119,9 +119,9 @@ def main(a):
     fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
     if a.preflight:
         task([str(PYTHON),'-u',str(CODE/'prepare_flow.py'),'--scene','Backpack','--data-root',str(RUN/'data'),
-              '--checkpoint',str(ROOT/'models/RAFT/raft-things.pth'),'--limit','3'], 'Backpack_flow_smoke')
+              '--checkpoint',str(ROOT/'models/RAFT/raft-things.pth')], 'Backpack_flow')
         for stage in (1,2,3):train('Backpack',stage,smoke=True)
-        write(RUN/'preflight.json',dict(status='passed',seconds=sum(read(p).get('seconds',0) for p in []),finished_unix=time.time(),
+        write(RUN/'preflight.json',dict(status='passed',finished_unix=time.time(),
                                       note='Three isolated 8-update native stages; no benchmark metrics'))
         write(RUN/'pipeline.json',dict(status='preflight_passed',finished_unix=time.time()))
         return
