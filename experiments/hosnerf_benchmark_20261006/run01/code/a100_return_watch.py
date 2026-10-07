@@ -108,9 +108,9 @@ terminal={'completed','failed','stopped_at_freeze_deadline'}
 def emit(x): print(json.dumps(x),flush=True)
 boot=Path('/proc/sys/kernel/random/boot_id').read_text().strip()
 if c.get('service'):
-    raw=subprocess.check_output(['systemctl','--user','show',c['service'],'--property=MainPID,InvocationID'],text=True)
+    raw=subprocess.check_output(['systemctl','--user','show',c['service'],'--property=MainPID,ExecMainPID,InvocationID'],text=True)
     service=dict(line.split('=',1) for line in raw.splitlines() if '=' in line)
-    pid=int(service.get('MainPID','0')); invocation=service.get('InvocationID','')
+    pid=int(service.get('MainPID','0')) or int(service.get('ExecMainPID','0')); invocation=service.get('InvocationID','')
 else: pid=c['pid']; invocation=''
 if expected: pid=expected['pid']
 try:
@@ -120,6 +120,7 @@ except (FileNotFoundError,ProcessLookupError):
     current=json.loads((state/'state.json').read_text())
     if current.get('status') not in terminal: raise RuntimeError('Worker exited without a terminal receipt')
     if expected and current.get('worker_pid')!=expected['pid']: raise RuntimeError('Terminal receipt belongs to another PID')
+    if c.get('service') and current.get('worker_pid')!=pid: raise RuntimeError('Terminal receipt does not belong to the service worker')
     if c.get('pid') and current.get('worker_pid')!=c['pid']: raise RuntimeError('Terminal receipt belongs to another requested PID')
     emit({'event':'terminal_after_exit','state':current}); sys.exit(0)
 actual={'pid':pid,'start_ticks':ticks,'boot_id':boot,'invocation_id':invocation,'service':c.get('service'),'cmdline':cmd}
@@ -137,8 +138,10 @@ else:
     fd=fun(pid,0)
     if fd<0: raise OSError(ctypes.get_errno(),os.strerror(ctypes.get_errno()))
 # Recheck after opening the pidfd to close the PID-reuse window.
-again=Path('/proc/%d/stat'%pid).read_text()
-if int(again[again.rfind(')')+2:].split()[19])!=ticks: raise RuntimeError('PID changed while attaching')
+try:
+    again=Path('/proc/%d/stat'%pid).read_text()
+    if int(again[again.rfind(')')+2:].split()[19])!=ticks: raise RuntimeError('PID changed while attaching')
+except FileNotFoundError: pass  # The opened pidfd still refers to this exiting worker.
 emit({'event':'attached','attachment':actual})
 select.select([fd],[],[]); os.close(fd)
 current=json.loads((state/'state.json').read_text())
@@ -178,7 +181,7 @@ def ssh_python(script, *args):
 
 
 def watch(args):
-    previous = read(RETURN / 'watcher.json') if (RETURN / 'watcher.json').exists() else {}
+    previous = read(RETURN / 'remote_attachment.json') if (RETURN / 'remote_attachment.json').exists() else {}
     attachment = previous.get('attachment')
     if attachment and (attachment.get('service') != args.remote_service or (args.remote_pid and attachment['pid'] != args.remote_pid)):
         raise RuntimeError('Existing watcher attachment belongs to a different requested worker')
@@ -195,6 +198,7 @@ def watch(args):
                 event = json.loads(line)
                 if event['event'] == 'attached':
                     attachment = event['attachment']
+                    write(RETURN / 'remote_attachment.json', dict(attachment=attachment, attached_unix=time.time()))
                     write(RETURN / 'watcher.json', dict(status='attached_remote_pidfd', attachment=attachment,
                           watcher_pid=os.getpid(), updated_unix=time.time(), transport_failures=failures))
                 elif event['event'] == 'terminal_after_exit':
@@ -316,7 +320,7 @@ def adapt_data(snapshot):
         else:
             target.symlink_to(child, target_is_directory=child.is_dir())
     target = data / camera.name
-    if target.exists() and sha(target) != sha(camera):
+    if target.is_symlink() or (target.exists() and sha(target) != sha(camera)):
         raise RuntimeError('Local generated camera adapter identity changed')
     shutil.copy2(camera, target)
     target_flow = data / 'images_flow'
@@ -328,6 +332,9 @@ def adapt_data(snapshot):
     write(RETURN / 'local_data_identity.json', dict(scene='Tennis', data_root=str(data.parent),
           original_input=str(source), remote_training_input=str(REMOTE_RUN / 'data/Tennis'),
           camera_source=str(camera), camera_sha256=sha(camera), flow_source=str(flow),
+          remote_flow_source=str(REMOTE_RUN / 'data/Tennis/images_flow'),
+          remote_flow_protocol=str(REMOTE_RUN / 'protocol/Tennis_flow.json'),
+          preserved_flow_protocol=str(snapshot / 'protocol/Tennis_flow.json'),
           dataset_manifest=str(manifest_path), dataset_manifest_sha256=sha(manifest_path),
           input_files_verified=len(manifest['files'])-1, evaluation_only_adapter=True))
     return data.parent
