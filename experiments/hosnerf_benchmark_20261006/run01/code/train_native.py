@@ -9,6 +9,7 @@ are retained. Compatibility patches are applied only in this Python process.
 from __future__ import annotations
 
 import argparse
+from datetime import datetime, timedelta, timezone
 import functools
 import hashlib
 import inspect
@@ -60,6 +61,9 @@ def arguments() -> argparse.Namespace:
     parser.add_argument("--max-steps", type=int)
     parser.add_argument("--stop-after-updates", type=int, default=0,
                         help="End this segment after N new updates; full max_steps and LR schedule stay unchanged")
+    parser.add_argument("--deadline", type=float,
+                        default=datetime(2026, 11, 4, 23, tzinfo=timezone(timedelta(hours=-8))).timestamp(),
+                        help="Unix cutoff; stop after the current update and save full state")
     parser.add_argument("--checkpoint-every", type=int, default=2000)
     parser.add_argument("--seed", type=int, default=777)
     parser.add_argument("--device", type=int, default=0,
@@ -335,7 +339,7 @@ def input_identity(args, source):
     return identity
 
 
-def construct_training(args, runtime):
+def construct_training(args, runtime, identity):
     np, torch, gin, pl, source, module, litdata, cfg = runtime
     basedir = str(args.data_root / args.scene)
     if args.stage == 1:
@@ -373,6 +377,12 @@ def construct_training(args, runtime):
                 expected_stage = 2 if name == "human" else 1
                 if parent is None or parent["stage"] != expected_stage or parent["scene"] != args.scene or parent["seed"] != args.seed:
                     raise RuntimeError(f"Stage 3 requires its own native {name} checkpoint from the same scene/seed")
+                for key in ["train_ids", "test_ids", "official_revision", "training_script_sha256", "benchmark_config_sha256"]:
+                    if parent[key] != identity[key]:
+                        raise RuntimeError(f"Stage 3 {name} initialization identity differs: {key}")
+                for key, digest in parent["metadata_sha256"].items():
+                    if key in identity["metadata_sha256"] and digest != identity["metadata_sha256"][key]:
+                        raise RuntimeError(f"Stage 3 {name} initialization dataset metadata differs: {key}")
                 if not args.smoke and (not parent["formal"] or payload["global_step"] != STAGES[expected_stage][2]):
                     raise RuntimeError(f"Formal stage 3 requires the completed official-budget {name} stage")
                 expected_prefix = "human." if name == "human" else "model."
@@ -447,7 +457,10 @@ def main():
     identity = input_identity(args, source)
     identity.update(torch_version=torch.__version__, lightning_version=pl.__version__,
                     workers=args.workers, cuda_visible_devices=os.environ.get("CUDA_VISIBLE_DEVICES"),
-                    device=args.device, chunk=args.chunk, netchunk=args.netchunk)
+                    device=args.device, chunk=args.chunk, netchunk=args.netchunk,
+                    resource=dict(cuda_visible_devices=os.environ.get("CUDA_VISIBLE_DEVICES"),
+                                  device=args.device, threads=args.threads,
+                                  segment_limit=args.stop_after_updates, deadline_unix=args.deadline))
     for name in ["background_checkpoint", "human_checkpoint", "resume"]:
         checkpoint = getattr(args, name)
         if checkpoint:
@@ -457,13 +470,15 @@ def main():
     if cfg is not None:
         (args.output / "resolved.yaml").write_text(cfg.dump())
     if not args.check_only:
+        if not args.evaluate_only and args.deadline and time.time() >= args.deadline:
+            raise RuntimeError("Training cutoff passed; no new optimizer update was started")
         if not torch.cuda.is_available():
             raise RuntimeError("Native training requires CUDA; use --imports-only or --check-only on CPU")
         torch.cuda.set_device(args.device)
         torch.cuda.reset_peak_memory_stats(args.device)
         identity["gpu"] = torch.cuda.get_device_name(args.device)
         write_json(args.output / "identity.json", identity)
-    model, data = construct_training(args, runtime)
+    model, data = construct_training(args, runtime, identity)
     if args.stage == 1:
         actual_test = [sorted((args.data_root / args.scene).glob("images/*.png"))[index].stem for index in data.i_test]
         if actual_test != identity["test_ids"]:
@@ -482,9 +497,14 @@ def main():
         def on_fit_start(self, trainer, lightning_module):
             self.segment_start = trainer.global_step
             self.segment_end = min(args.max_steps, self.segment_start + args.stop_after_updates) if args.stop_after_updates else args.max_steps
+            self.stop_reason = "prescribed_budget"
         def on_train_batch_end(self, trainer, lightning_module, outputs, batch, batch_idx):
             module._benchmark_sampling.commit()
-            if trainer.global_step >= self.segment_end and trainer.global_step < args.max_steps:
+            if args.deadline and time.time() >= args.deadline and trainer.global_step < args.max_steps:
+                self.stop_reason = "deadline"
+                trainer.should_stop = True
+            elif trainer.global_step >= self.segment_end and trainer.global_step < args.max_steps:
+                self.stop_reason = "segment_updates"
                 trainer.should_stop = True
         def on_save_checkpoint(self, trainer, lightning_module, checkpoint):
             checkpoint["benchmark_identity"] = identity
@@ -538,7 +558,7 @@ def main():
     else:
         trainer.fit(model, datamodule=data, ckpt_path=str(args.resume) if args.resume else None)
         complete = trainer.global_step == args.max_steps
-        if not complete and (not args.stop_after_updates or trainer.global_step != full_state.segment_end):
+        if not complete and full_state.stop_reason != "deadline" and (not args.stop_after_updates or trainer.global_step != full_state.segment_end):
             raise RuntimeError(f"Native optimization stopped at {trainer.global_step}/{args.max_steps}")
         if complete:
             trainer.save_checkpoint(str(args.output / "final.ckpt"), weights_only=False)
@@ -547,6 +567,7 @@ def main():
         eval_trainer = trainer
     complete = eval_trainer.global_step == args.max_steps
     result = dict(status="completed" if complete else "segment_complete", stage=args.stage, formal=not args.smoke,
+                  reason=full_state.stop_reason if not args.evaluate_only else "evaluation_only",
                   complete=complete, segment_updates=eval_trainer.global_step-full_state.segment_start if not args.evaluate_only else 0,
                   global_step=eval_trainer.global_step, wall_seconds=time.monotonic()-start,
                   peak_allocated_bytes=torch.cuda.max_memory_allocated(args.device),
