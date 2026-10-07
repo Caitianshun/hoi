@@ -494,7 +494,7 @@ def main():
         return
 
     class FullState(pl.Callback):
-        def on_fit_start(self, trainer, lightning_module):
+        def on_train_start(self, trainer, lightning_module):
             self.segment_start = trainer.global_step
             self.segment_end = min(args.max_steps, self.segment_start + args.stop_after_updates) if args.stop_after_updates else args.max_steps
             self.stop_reason = "prescribed_budget"
