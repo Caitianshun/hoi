@@ -43,6 +43,10 @@ def engine(scene,arm,target,output,purpose='formal',resume=None,probe=None):
         scale_bound=meta['scale_bound'],base_points=nbase,base_topology='fixed',Adam='one_fresh_named_group_optimizer',
         quality='Qr' if arm=='PQ' else 'Q',scene_extent=meta['scene_extent'])
     save_json(output/'effective_config.json',effective)
+    if resume is None:
+        latest=atomic_checkpoint(output/'checkpoint_000000.pt',capture(base,support,optimizer,scene,arm,0,meta))
+        save_json(output/'latest_checkpoint.json',dict(completed_updates=0,checkpoint=latest))
+        append_json(output/'checkpoint_index.jsonl',dict(completed_updates=0,checkpoint=latest))
     try:
         for k in range(completed+1,target+1):
             tick=time.monotonic();attempted+=1

@@ -47,9 +47,8 @@ def render_all():
     assert freeze['status']=='all_six_terminals_frozen'
     for scene in config()['scenes']:
         prior=PosePriorAdapter.from_cache(scene_dir(scene)/'protocol/pose_cache.pt')
-        fixed_path=ROOT/'experiments/local_dynamic_v9_20260929/run01/scenes'/scene/'protocol/fixed_examples.json'
-        if not fixed_path.exists():fixed_path=ROOT/'experiments/local_dynamic_v9_20260929/run01/protocol/fixed_examples.json'
-        fixed=read(fixed_path) if fixed_path.exists() else {}
+        fixed_path=ROOT/config()['scenes'][scene]['historical_dir']/'protocol/fixed_examples.json'
+        fixed=read(fixed_path)
         selected=set(fixed.get('training_frame_ids',[]))
         for arm in ['PARENT','C','P','PQ']:
             if arm=='PARENT':base,objs,meta=import_parent(scene);support=None;asset=meta['parent']
