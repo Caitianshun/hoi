@@ -33,6 +33,36 @@ UNITS = {'local_gpu0': 'hoi-hosnerf-local-gpu0-20261007.service',
          'a100_return': 'hoi-hosnerf-a100-return-20261006.service'}
 TRAIN_SHA = '10c79ca980eaf31dc1a40ff015e23008d719ba4f6aa3263a67a8fd05ac8efdac'
 CONFIG_SHA = '45e25b050a799f50f2ca59bfd2aaf618ed79e1ab709c5b9dce9c33c513775ad7'
+COMPARE_CODE = r'''
+import json, sys, torch
+from pathlib import Path
+def compare(a, b):
+    final = torch.load(a, map_location='cpu', weights_only=False)
+    evaluated = torch.load(b, map_location='cpu', weights_only=False)
+    if final['global_step'] != evaluated['global_step'] or final['global_step'] != 200000:
+        raise RuntimeError('Final/evaluated endpoint global steps differ')
+    if final['benchmark_identity'] != evaluated['benchmark_identity']:
+        raise RuntimeError('Final/evaluated endpoint source or parent identities differ')
+    if set(final['state_dict']) != set(evaluated['state_dict']):
+        raise RuntimeError('Final/evaluated model keys differ')
+    for key, value in final['state_dict'].items():
+        other = evaluated['state_dict'][key]
+        if value.shape != other.shape or value.dtype != other.dtype or not torch.equal(value, other):
+            raise RuntimeError('Final/evaluated model parameters differ: ' + key)
+    return {'status':'passed_same_endpoint', 'global_step':200000,
+            'model_tensors':len(final['state_dict']), 'benchmark_identity_equal':True}
+if sys.argv[1] == '--fixture':
+    directory=Path(sys.argv[2]); a=directory/'final.ckpt'; b=directory/'last.ckpt'
+    payload={'global_step':200000,'benchmark_identity':{'fixture_only':True},'state_dict':{'weight':torch.ones(3)}}
+    torch.save(payload,a); torch.save(payload,b)
+    result=compare(a,b)
+    payload['state_dict']['weight'][0]=2; torch.save(payload,b)
+    try: compare(a,b)
+    except RuntimeError: result['changed_model_rejected']=True
+    else: raise RuntimeError('Changed model fixture was accepted')
+else: result=compare(sys.argv[1],sys.argv[2])
+print(json.dumps(result))
+'''
 
 
 def read(path):
@@ -53,6 +83,14 @@ def sha(path):
         for block in iter(lambda: stream.read(2**20), b''):
             digest.update(block)
     return digest.hexdigest()
+
+
+def compare_checkpoints(final, evaluated):
+    environment = dict(os.environ, CUDA_VISIBLE_DEVICES='', OMP_NUM_THREADS='4', OPENBLAS_NUM_THREADS='4')
+    python = RUN.parents[2] / 'envs/hosnerf/bin/python'
+    output = subprocess.check_output([str(python), '-c', COMPARE_CODE, str(final), str(evaluated)],
+                                     env=environment, text=True)
+    return json.loads(output)
 
 
 def boot():
@@ -277,8 +315,15 @@ def scene_endpoint(run, scene, manifest):
             assert stage_identity['seed'] == 777 and stage_identity['benchmark_config_sha256'] == CONFIG_SHA
             checkpoint = directory / 'final.ckpt'
             checkpoints.append(dict(stage=stage, checkpoint=str(checkpoint), sha256=sha(checkpoint)))
-        assert checkpoints[-1]['sha256'] == identity['checkpoint_sha256']
-        assert Path(identity['checkpoint']).resolve() == Path(checkpoints[-1]['checkpoint']).resolve()
+        final = Path(checkpoints[-1]['checkpoint'])
+        evaluated = Path(identity['checkpoint'])
+        allowed = {final.resolve()} if scene == 'Tennis' else {final.resolve(), (final.parent / 'last.ckpt').resolve()}
+        assert evaluated.resolve() in allowed
+        evaluated_sha = sha(evaluated)
+        assert evaluated_sha == identity['checkpoint_sha256']
+        endpoint_equivalence = dict(status='same_checkpoint_bytes')
+        if evaluated_sha != checkpoints[-1]['sha256']:
+            endpoint_equivalence = compare_checkpoints(final, evaluated)
         data = Path(identity['data_path'])
         allowed_data = run / ('a100_return/local_data/Tennis' if scene == 'Tennis' else f'data/{scene}')
         assert data.resolve() == allowed_data.resolve()
@@ -296,7 +341,9 @@ def scene_endpoint(run, scene, manifest):
             assert all(math.isfinite(value) for value in values)
             assert math.isclose(sum(values) / 16, metrics['mean_metrics'][key], rel_tol=1e-7, abs_tol=1e-9)
         result.update(status='completed_verified', verified=True, metrics=str(path), metrics_sha256=sha(path),
-                      checkpoint_index=checkpoints, metric_implementation=identity.get('evaluator_sha256'))
+                      checkpoint_index=checkpoints, evaluated_checkpoint=str(evaluated),
+                      evaluated_checkpoint_sha256=evaluated_sha, endpoint_equivalence=endpoint_equivalence,
+                      metric_implementation=identity.get('evaluator_sha256'))
     except Exception:
         result.update(status='endpoint_integrity_failed', error=traceback.format_exc())
     return result
@@ -386,14 +433,25 @@ def cpu_check():
                   identity=dict(strict_load=True, global_step=200000, test_ids=ids,
                     checkpoint=str(checkpoints[-1]), checkpoint_sha256=sha(checkpoints[-1]),
                     checkpoint_benchmark_identity=identity, data_path=str(data), test_resources=resources)))
+            if scene != 'Tennis':
+                last = checkpoints[-1].parent / 'last.ckpt'
+                last.write_bytes(checkpoints[-1].read_bytes())
+                metrics = read(output / 'metrics.json')
+                metrics['identity']['checkpoint'] = str(last)
+                write(output / 'metrics.json', metrics)
         verified = [scene_endpoint(run, scene, fixture_manifest) for scene in SCENES]
         assert all(row['verified'] for row in verified), verified
         (run / 'evaluation/Dance/images/00000.png').write_bytes(b'changed fixture artifact')
         verified = [scene_endpoint(run, scene, fixture_manifest) for scene in SCENES]
         assert sum(row['verified'] for row in verified) == 5
+        python = RUN.parents[2] / 'envs/hosnerf/bin/python'
+        equivalence = json.loads(subprocess.check_output([str(python), '-c', COMPARE_CODE, '--fixture', str(temp)],
+                                text=True, env=dict(os.environ, CUDA_VISIBLE_DEVICES='', OMP_NUM_THREADS='4', OPENBLAS_NUM_THREADS='4')))
+        assert equivalence['status'] == 'passed_same_endpoint' and equivalence['changed_model_rejected']
     value = dict(status='passed_cpu_fixtures', actual_pidfd_exit=True, terminal_success_and_failure_checked=True,
                  missing_endpoint_not_completed=True, strict_tennis_link_checked=True,
                  six_valid_synthetic_endpoints_verified=True, changed_artifact_rejects_one_of_six=True,
+                 production_local_last_path_checked=True, different_serialization_model_equivalence_checked=True,
                  gpu_tasks_launched=0, parameters_updated=0, coordinator_sha256=sha(__file__), checked_unix=time.time())
     write(OPS / 'cpu_check.json', value)
     print(json.dumps(value), flush=True)
