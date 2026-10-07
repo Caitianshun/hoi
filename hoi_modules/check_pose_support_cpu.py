@@ -124,7 +124,8 @@ def main():
                     'similarity and rotation covariance', 'SH gradient masking', 'per-view gradient norms',
                     'clone/split/prune IDs/skin/Adam rows', 'exact cap', 'checkpoint tensors', 'LR endpoints',
                     '20k CPU seed quotas/jitter/standalone KNN', 'zero/antiparallel bone rotation'],
-        'actual_GPU_Adam_updates': 0}))
+        'actual_CPU_Adam_updates': 1, 'actual_GPU_Adam_updates': 0,
+        'actual_Adam_updates': 1, 'extra_CPU_backward_without_Adam': 1}))
 
 
 if __name__ == '__main__':
