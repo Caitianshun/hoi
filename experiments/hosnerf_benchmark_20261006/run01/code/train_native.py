@@ -5,6 +5,8 @@ Each invocation runs one stage. Formal budgets are 500000/400000/200000 steps;
 shorter runs require --smoke and cannot be reported as the formal benchmark.
 The official model, losses, Adam implementation, and learning-rate schedules
 are retained. Compatibility patches are applied only in this Python process.
+The Lightning wrapper is rebound to Adam's restored parameter groups so that
+the official learning-rate updates continue to affect the live optimizer.
 """
 from __future__ import annotations
 
@@ -219,6 +221,9 @@ def load_runtime(args):
     original_step = official_model.LitMipNeRF360.optimizer_step
     def optimizer_step(self, epoch, batch_idx, optimizer, optimizer_idx,
                        optimizer_closure, on_tpu=False, using_lbfgs=False, **unused):
+        # PL1.9 copies param_groups before Adam.load_state_dict replaces them.
+        # Rebind the live groups while retaining Lightning's step/closure path.
+        optimizer.param_groups = getattr(optimizer, "optimizer", optimizer).param_groups
         return original_step(self, epoch, batch_idx, optimizer, optimizer_idx,
                              optimizer_closure, on_tpu, False, using_lbfgs)
     official_model.LitMipNeRF360.optimizer_step = optimizer_step
