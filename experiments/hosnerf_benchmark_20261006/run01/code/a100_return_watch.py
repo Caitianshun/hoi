@@ -401,6 +401,11 @@ def stop_owned_process(child):
         child.wait()
 
 
+def terminate_watcher(signum, frame):
+    # A plain SIGTERM exit would bypass the evaluator's finally/cleanup path.
+    raise InterruptedError(f'Return watcher received signal {signum}')
+
+
 def gpu_reading():
     raw = subprocess.check_output(['nvidia-smi', '-i', '1', '--query-gpu=name,uuid,memory.total,memory.used,utilization.gpu',
                                    '--format=csv,noheader,nounits'], text=True).strip()
@@ -628,6 +633,7 @@ def main(args):
     if not args.run:
         check_only()
         return
+    signal.signal(signal.SIGTERM, terminate_watcher)
     RETURN.mkdir(parents=True, exist_ok=True)
     with (RETURN / 'watcher.lock').open('a') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
