@@ -72,6 +72,9 @@ def allowed(path: Path) -> bool:
     name = relative.as_posix()
     if name in ROOT_FILES or name in EXTRA_CONFIG_FILES:
         return True
+    if name.startswith("experiments/hosnerf_benchmark_20261006/run01/"):
+        # Input identities, paper audits, resources and benchmark results stay private.
+        return relative.parent.as_posix() == "experiments/hosnerf_benchmark_20261006/run01/code" and path.suffix in SOURCE_EXTENSIONS
     if name.startswith("hoi_modules/"):
         return len(relative.parts) == 2 and path.suffix == ".py"
     if name.startswith("experiments/local_dynamic_v9_20260929/run01/"):
