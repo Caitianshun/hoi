@@ -84,10 +84,21 @@ def summarize(run):
             rows.append(dict(scene=scene, source_kind="published_reference", status="reported_by_paper",
                              PSNR=paper.get("PSNR"), SSIM=paper.get("SSIM"), LPIPS_VGG=paper.get("LPIPS_VGG"), frames=None))
     finished = sum(row["status"] == "completed" for row in local_rows)
+    aggregate = {key: (sum(row["metrics"][key] for row in local_rows) / len(SCENES)
+                       if finished == len(SCENES) else None)
+                 for key in ["PSNR", "SSIM", "LPIPS"]}
+    rows.append(dict(scene="ALL_SIX_MEAN", source_kind="local_retrained",
+                     status="completed" if finished == len(SCENES) else "awaiting_all_six_endpoints",
+                     PSNR=aggregate["PSNR"], SSIM=aggregate["SSIM"], LPIPS_VGG=aggregate["LPIPS"],
+                     frames=16 * len(SCENES) if finished == len(SCENES) else None))
     result = dict(status="completed" if finished == len(SCENES) else "incomplete",
                   requested_scenes=SCENES, completed_scenes=finished,
                   updated_at_utc=datetime.now(timezone.utc).isoformat(),
                   pipeline=pipeline, local_retrained=local_rows,
+                  local_equal_scene_mean=dict(status="completed" if finished == len(SCENES) else "awaiting_all_six_endpoints",
+                                             completed_scenes=finished, required_scenes=len(SCENES),
+                                             aggregation="equal-weight arithmetic mean of all six scene means; no partial-scene average",
+                                             metrics=aggregate),
                   published_reference=reference if reference else None,
                   note="Missing local endpoint metrics are null/NA. Published references are not locally trained results. VGG LPIPS and corrected spatial SSIM are explicit.")
     write_json(run / "summary.json", result)
@@ -102,6 +113,9 @@ def summarize(run):
         values = ["NA" if row["metrics"][key] is None else f"{row['metrics'][key]:.6f}" for key in ["PSNR", "SSIM", "LPIPS"]]
         steps = "/".join(str(stage["global_step"]) for stage in row["stages"])
         lines.append(f"| {row['scene']} | {row['status']} | {steps} | {' | '.join(values)} |")
+    aggregate_values = ["NA" if aggregate[key] is None else f"{aggregate[key]:.6f}"
+                        for key in ["PSNR", "SSIM", "LPIPS"]]
+    lines.append(f"| 六场景等权均值 | {finished}/{len(SCENES)} 终态完成 | — | {' | '.join(aggregate_values)} |")
     lines.extend(["", "SSIM采用原生尺寸H×W×3图像、channel_axis=2、data_range=1，修正官方展平N×3计算；VGG-LPIPS保留官方网络与标量定义。训练仅使用冻结训练帧，按固定官方三阶段预算评价最终终态。", "",
                   "论文参照的来源与未知复跑细节见 protocol/PAPER_PROTOCOL_AUDIT.md；metrics.csv以source_kind区分local_retrained和published_reference。正式训练与先验条件核实前，不计算公平排名差值。", ""])
     (run / "STATUS.md").write_text("\n".join(lines))
