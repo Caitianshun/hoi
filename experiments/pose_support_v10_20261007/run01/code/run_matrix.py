@@ -232,6 +232,14 @@ def train():
     assert acceptance.get("diagnostic_Adam_updates", acceptance.get("actual_Adam_updates", 0)) <= config()["budgets"]["integrated_Adam_updates"]
     assert acceptance.get("extra_no_update_backwards", 0) <= config()["budgets"]["extra_no_update_backwards"]
     assert read(RUN / "protocol/cost_prediction.json")["status"] == "within_budget"
+    assert read(RUN / "protocol/data_integrity.json")["status"] == "passed"
+    for scene in config()["scenes"]:
+        inp = read(RUN / "scenes" / scene / "protocol/input_identity.json")
+        for field in ("parent", "input_manifest", "camera_source", "pose_cache", "support_seed", "RGB_schedule"):
+            bound(inp[field])
+        for asset in inp["metadata"].values(): bound(asset)
+    runtime = read(RUN / "protocol/runtime_identity.json")
+    for asset in runtime["raster"]: bound(asset)
     assert len(jsonl(RUN / "protocol/formal_attempts.jsonl")) <= config()["budgets"]["formal_attempts"]
     if (RUN / "protocol/terminal_freeze.json").exists(): verify_freeze(); return
     for scene in config()["scenes"]:
