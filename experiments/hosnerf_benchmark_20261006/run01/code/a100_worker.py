@@ -137,6 +137,7 @@ def checkpoint_audit(args):
     assert identity['official_model_sha256'] == sha(OFFICIAL / STAGE_NAMES[stage] / 'src/model/mipnerf360/model.py')
     assert identity['seed'] == 777 and identity['workers'] == 0
     assert identity['chunk'] == 0 and identity['netchunk'] == 0
+    assert identity['data_root'] == str(DATA) and identity['cuda_visible_devices'] == GPU and identity['device'] == 0
     scene = read(RUN / 'protocol/dataset_manifest.json')['scenes'][SCENE]
     assert identity['train_ids'] == scene['train_ids'] and identity['test_ids'] == scene['test_ids']
     for name, digest in identity['metadata_sha256'].items():
@@ -172,7 +173,16 @@ def checkpoint_audit(args):
     assert set(rng) == {'python', 'numpy', 'torch', 'cuda'} and len(rng['cuda']) == 1
     if args.before:
         before = torch.load(args.before, map_location='cpu', weights_only=False)
-        assert before['benchmark_identity'] == identity, 'Continuation identity changed'
+        previous_identity = before['benchmark_identity']
+        # Resume path, parent checkpoint provenance and per-process segment limit
+        # change between launches. Every scientific field retains exact identity.
+        stable_keys = ['stage', 'scene', 'seed', 'data_root', 'train_ids', 'test_ids', 'metadata_sha256',
+                       'official_revision', 'official_model_sha256', 'native_budget', 'max_steps', 'formal',
+                       'training_script_sha256', 'benchmark_config_sha256', 'flow_manifest_sha256',
+                       'workers', 'chunk', 'netchunk', 'torch_version', 'lightning_version',
+                       'cuda_visible_devices', 'device', 'gpu']
+        assert all(previous_identity[key] == identity[key] for key in stable_keys), 'Continuation scientific identity changed'
+        assert identity['resume']['path'] == str(args.before) and identity['resume']['sha256'] == sha(args.before)
         assert int(before['global_step']) + 2 == step
         old_sampler = before['benchmark_sampling']
         assert sampling['committed'] == old_sampler['committed'] + 2
@@ -182,12 +192,18 @@ def checkpoint_audit(args):
         assert all(np.array_equal(a, b) for a, b in zip(sampling['epoch_rng']['numpy'], old_sampler['epoch_rng']['numpy']))
         old = before['optimizer_states'][0]
         assert [group['params'] for group in old['param_groups']] == [group['params'] for group in optimizer['param_groups']]
+        advances = []
         for parameter, old_state in old['state'].items():
             assert parameter in optimizer['state']
-            assert 0 <= int(optimizer['state'][parameter]['step']) - int(old_state['step']) <= 2
+            advance = int(optimizer['state'][parameter]['step']) - int(old_state['step'])
+            assert 0 <= advance <= 2
+            advances.append(advance)
         for parameter, state in optimizer['state'].items():
             if parameter not in old['state']:
                 assert int(state['step']) <= 2
+        assert 2 in advances, 'No populated Adam state advanced through both updates'
+        assert any(not torch.equal(tensor, before['state_dict'][name]) for name, tensor in payload['state_dict'].items()
+                   if tensor.is_floating_point()), 'Short continuation did not change any learned model tensor'
     result = dict(status='passed', stage=stage, scene=SCENE, formal=args.formal, global_step=step,
         checkpoint=str(args.audit_checkpoint), checkpoint_sha256=sha(args.audit_checkpoint),
         training_script_sha256=TRAIN_SHA, groups=len(optimizer['param_groups']),
@@ -472,6 +488,7 @@ class Worker:
                 self.gpu(self.train_command(stage, directory, 2, smoke=True, resume=saved), f'Tennis_stage{stage}_resume8to10')
                 self.deadline_check()
             assert saved.is_file()
+            self.audit(saved, stage, False, 8, directory, f'stage{stage}_immutable_fresh8')
             accepted[stage] = self.audit(last, stage, False, 10, directory, f'stage{stage}_resume10', before=saved)
             if stage == 1:
                 result = STATE / 'audits/stage1_sampler_adam_resume.json'
@@ -498,7 +515,7 @@ class Worker:
                 else:
                     assert not last.exists() and not (directory / 'final.ckpt').exists(), 'Formal training must start from scratch'
                 if current == STEPS[stage]:
-                    assert sha(last) == sha(directory / 'final.ckpt')
+                    self.audit(directory / 'final.ckpt', stage, True, current, directory, f'formal_stage{stage}_endpoint')
                     break
                 assert 0 <= current < STEPS[stage]
                 updates = min(2000, STEPS[stage] - current)
