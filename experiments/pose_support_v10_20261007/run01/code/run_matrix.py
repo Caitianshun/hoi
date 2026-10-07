@@ -193,28 +193,27 @@ def completed_run(scene, arm):
 
 def recovery_state(scene, arm, failed_job):
     directory = RUN / "scenes" / scene / "runs" / arm
-    assert not (directory / "resume_receipt.json").exists(), "This arm already consumed its one recovery"
+    assert not (directory / "controller_recovery_receipt.json").exists(), "This arm already consumed its one recovery"
+    assert not (directory / "resume_receipt.json").exists(), "Trainer already consumed this arm's recovery"
     record = read(directory / "latest_checkpoint.json")
     checkpoint = record.get("checkpoint", record)
     bound(checkpoint)
     saved = record.get("completed_updates")
     if saved is None: raise ValueError("latest_checkpoint.json must expose completed_updates")
-    progress = read(directory / "progress.json")
-    attempted = progress.get("attempted_this_process")
-    resume_from = progress.get("resume_from_updates", 0)
-    if attempted is None: raise ValueError("Cannot bound failed attempts without persisted per-attempt progress")
-    frontier = resume_from + attempted
+    progress = read(directory / "attempt_cursor.json")
+    frontier = progress["attempted_iteration"]
     replay = frontier - saved
     assert 0 <= replay <= config()["budgets"]["replay_updates_per_job"], ("Recovery replay budget exceeded", replay)
-    attempts = jsonl(directory / "attempts.jsonl")
-    confirmed = sum(r.get("event") == "update_completed" for r in attempts)
-    unconfirmed = sum(r.get("event") == "attempt_started" for r in attempts) - confirmed
+    attempts = [r for r in jsonl(RUN / "protocol/formal_attempts.jsonl") if r["scene"] == scene and r["arm"] == arm]
+    confirmed = len(jsonl(directory / "training_metrics.jsonl"))
+    unconfirmed = len(attempts) - confirmed
+    assert unconfirmed >= 0
     receipt = dict(status="one_technical_recovery_consumed", scene=scene, arm=arm,
         checkpoint=checkpoint, resume_from_updates=saved, attempted_frontier=frontier,
         replay_attempts=replay, failed_job=failed_job, consumed_time_unix=time.time(),
         confirmed_logged_Adam_updates=confirmed, unconfirmed_attempt_outcomes=unconfirmed,
         root_cause="unknown unless separately established; recovery is not a root-cause fix")
-    save(directory / "resume_receipt.json", receipt)
+    save(directory / "controller_recovery_receipt.json", receipt)
     append(RUN / "protocol/recovery_incidents.jsonl", receipt)
     return checkpoint["path"]
 
@@ -225,6 +224,7 @@ def train():
     assert acceptance.get("diagnostic_Adam_updates", acceptance.get("actual_Adam_updates", 0)) <= config()["budgets"]["integrated_Adam_updates"]
     assert acceptance.get("extra_no_update_backwards", 0) <= config()["budgets"]["extra_no_update_backwards"]
     assert read(RUN / "protocol/cost_prediction.json")["status"] == "within_budget"
+    assert len(jsonl(RUN / "protocol/formal_attempts.jsonl")) <= config()["budgets"]["formal_attempts"]
     if (RUN / "protocol/terminal_freeze.json").exists(): verify_freeze(); return
     for scene in config()["scenes"]:
         for arm in config()["arms"]:
@@ -244,6 +244,7 @@ def train():
                     result = job(scene + "_" + arm + "_resume1", "train_scene.py", command + ["--resume", checkpoint])
             assert result["returncode"] == 0, ("Second failure: stop this arm and preserve evidence", scene, arm, result)
             assert completed_run(scene, arm)
+            assert len(jsonl(RUN / "protocol/formal_attempts.jsonl")) <= config()["budgets"]["formal_attempts"]
     freeze()
 
 
