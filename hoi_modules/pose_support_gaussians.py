@@ -299,6 +299,10 @@ class PoseSupportGaussians(nn.Module):
         return self._xyz
 
     @property
+    def u(self):
+        return self._xyz
+
+    @property
     def get_features(self):
         features = torch.cat((self._features_dc, self._features_rest), 1)
         mask = features.new_zeros(16)
