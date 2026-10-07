@@ -27,13 +27,22 @@ def run():
         render=make_renderer(meta['scale_bound']);old=original_renderer(meta['scale_bound']);bg=rgb_background(objs[0]);rows=[]
         with torch.no_grad():
             for cam in selected:
-                a=render(cam,base,objs[3],bg)['render'];b=old(cam,base,objs[3],bg,stage='fine')['render']
+                pa=render(cam,base,objs[3],bg);pb=old(cam,base,objs[3],bg,stage='fine')
+                assert torch.equal(pa['xyz_final'],pb['xyz_final'])
+                assert torch.equal(pa['rendered_scale_bounded'],pb['rendered_scale_bounded'])
+                assert torch.equal(torch.nn.functional.normalize(pa['rotation_final'],dim=-1),pb['rotation_final'])
+                assert torch.equal(torch.sigmoid(pa['opacity_final']),pb['opacity_final'])
+                a=pa['render'];b=pb['render']
                 difference=(a-b).abs();row=dict(frame_id=cam.image_name,max_abs=float(difference.max()),mean_abs=float(difference.mean()),
-                    rmse=float((a-b).square().mean().sqrt()))
+                    rmse=float((a-b).square().mean().sqrt()),
+                    fraction_abs_above_1e_4=float((difference>1e-4).float().mean()),
+                    fraction_abs_above_1e_3=float((difference>1e-3).float().mean()),
+                    xyz_scale_quaternion_opacity_identical=True)
                 rows.append(row)
                 # Different covariance multiplication paths have floating-point
                 # raster rounding. This gate concerns implementation equivalence.
-                assert row['mean_abs']<2e-6 and row['max_abs']<2e-3,row
+                save_json(RUN/'protocol/parent_numerical_equivalence_partial.json',dict(scene=scene,rows=rows))
+                assert row['mean_abs']<2e-6 and row['rmse']<2e-5,row
             cache=torch.load(scene_dir(scene)/'protocol/support_seed.pt',map_location='cpu',weights_only=False)
             empty={**cache,**{k:cache[k][:0] for k in ('u','rgb','knn_dist2','bone_indices','bone_weights','source')}}
             bank=PoseSupportGaussians(empty,meta['scene_extent'],meta['scale_bound']).cuda()

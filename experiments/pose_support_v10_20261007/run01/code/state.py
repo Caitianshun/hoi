@@ -90,6 +90,7 @@ def capture(base,support,optimizer,scene,arm,completed,meta):
         actual_learning_rates={g['name']:g['lr'] for g in optimizer.param_groups}))
 def restore(s):
     from hoi_modules.pose_support_gaussians import PoseSupportGaussians
+    torch.backends.cudnn.deterministic=True;torch.backends.cudnn.benchmark=False
     assert s['schema']==SCHEMA and s['phase']=='after_Adam_topology_and_zero_grad' and s['resumable']
     base,objs,meta=import_parent(s['scene'])
     for k in ATTRS:setattr(base,k,nn.Parameter(s['base'][k].cuda().clone()))
