@@ -21,6 +21,7 @@ import re
 import select
 import shlex
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
@@ -78,6 +79,8 @@ def in_snapshot(snapshot, name):
 def choose_files(manifest):
     """Keep a complete index while avoiding redundant checkpoint transfers."""
     result, names = [], set()
+    partial_terminal = manifest.get('status') in {'failed', 'stopped_at_freeze_deadline'}
+    present_paths = {row['path'] for row in manifest['files']}
     for item in manifest['files']:
         p = relative(item['path'])
         if item['path'] in names:
@@ -93,8 +96,16 @@ def choose_files(manifest):
             raise ValueError(f'Unexpected worker terminal artifact: {p}')
         checkpoint = p.suffix in {'.ckpt', '.pth', '.pt'}
         selected = not checkpoint or str(p) in {f'runs/formal/Tennis/stage{i}/final.ckpt' for i in (1, 2, 3)}
-        result.append(dict(item, remote_path=str(REMOTE_RUN / item['path']),
-                           transfer_status='selected' if selected else 'remote_retained'))
+        partial_checkpoint = (partial_terminal and str(p) in {
+            f'runs/formal/Tennis/stage{i}/last.ckpt' for i in (1, 2, 3)
+            if f'runs/formal/Tennis/stage{i}/final.ckpt' not in present_paths})
+        selected = selected or partial_checkpoint
+        record = dict(item, remote_path=str(REMOTE_RUN / item['path']),
+                      transfer_status='selected' if selected else 'remote_retained')
+        if partial_checkpoint:
+            record['checkpoint_status'] = 'unverified_requires_inspection_before_resume'
+            record['checkpoint_assurance'] = 'terminal_transport_SHA_only; optimizer/RNG/committed_step not audited by return watcher'
+        result.append(record)
     return result
 
 
@@ -283,7 +294,7 @@ def transfer():
     write(RETURN / 'returned_file_index.json', dict(status='verified', remote_root=str(REMOTE_RUN),
           terminal_receipt_sha256=before['receipt']['sha256'], returned_files=len(selected),
           remote_retained_files=len(index)-len(selected), files=index,
-          policy='Three formal final full-state checkpoints only; original RGB/metadata stay local; remote files retained',
+          policy='Completed: three formal final full-state checkpoints only. Failure/cutoff: also one canonical last per unfinished stage, requires inspection. Original RGB/metadata stay local; remote files retained',
           completed_unix=time.time()))
     write(RETURN / 'return_receipt.json', dict(status=receipt['status'], remote_receipt=receipt,
           remote_receipt_sha256=before['receipt']['sha256'], terminal_files_sha256=before['manifest']['sha256'],
@@ -370,6 +381,24 @@ def wait_pids(pids):
     finally:
         for fd in fds:
             os.close(fd)
+
+
+def stop_owned_process(child):
+    """Reap only the process group created by our start_new_session Popen."""
+    if child.poll() is not None:
+        return
+    try:
+        os.killpg(child.pid, signal.SIGTERM)
+    except ProcessLookupError:
+        pass
+    try:
+        child.wait(timeout=30)
+    except subprocess.TimeoutExpired:
+        try:
+            os.killpg(child.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        child.wait()
 
 
 def gpu_reading():
@@ -468,9 +497,16 @@ def evaluate(receipt, snapshot, bundle):
                           command=command, gpu_readings=[first, second], started_unix=started))
                     with (RETURN / 'local_evaluation.log').open('a') as log:
                         child = subprocess.Popen(command, cwd=ROOT, env=env, stdout=log, stderr=subprocess.STDOUT,
-                                                 pass_fds=(lock.fileno(),))
-                        write(RETURN / 'local_evaluation_process.json', dict(pid=child.pid, command=command, started_unix=started))
-                        code = child.wait()
+                                                 pass_fds=(lock.fileno(),), start_new_session=True)
+                        try:
+                            write(RETURN / 'local_evaluation_process.json', dict(pid=child.pid, command=command, started_unix=started))
+                            code = child.wait()
+                        except BaseException:
+                            # The shared GPU lock stays held until our evaluator
+                            # group has exited and been reaped, even if recording
+                            # its PID failed or this service was interrupted.
+                            stop_owned_process(child)
+                            raise
                     if code:
                         raise RuntimeError(f'Unified local evaluation failed ({code})')
                     break
@@ -517,6 +553,13 @@ def check_only():
             dict(path='data/Tennis/images_flow/0001.npz', bytes=2, sha256='d'*64)]
     chosen = choose_files(dict(files=rows))
     assert [r['transfer_status'] for r in chosen] == ['selected', 'remote_retained', 'remote_retained', 'selected']
+    partial_rows = rows + [dict(path='runs/formal/Tennis/stage2/last.ckpt', bytes=2, sha256='e'*64)]
+    for status in ['failed', 'stopped_at_freeze_deadline']:
+        partial = choose_files(dict(status=status, files=partial_rows))
+        assert partial[1]['transfer_status'] == 'remote_retained'  # stage3 final already exists
+        assert partial[-1]['transfer_status'] == 'selected'
+        assert partial[-1]['checkpoint_status'] == 'unverified_requires_inspection_before_resume'
+        assert partial[2]['transfer_status'] == 'remote_retained'  # smoke stays remote
     for malformed in [dict(files=rows+rows[:1]), dict(files=[dict(rows[0], path='data/Tennis/images/1.png')])]:
         try:
             choose_files(malformed)
@@ -541,6 +584,9 @@ def check_only():
     child = subprocess.Popen([sys.executable, '-c', 'pass'])
     wait_pids([child.pid])
     assert child.wait() == 0
+    owned = subprocess.Popen([sys.executable, '-c', 'import time;time.sleep(60)'], start_new_session=True)
+    stop_owned_process(owned)
+    assert owned.poll() is not None and owned.returncode < 0
     with tempfile.TemporaryDirectory() as name:
         state = Path(name) / 'a100_worker'
         state.mkdir()
@@ -568,6 +614,8 @@ def check_only():
     result = dict(status='cpu_check_passed', watcher_sha256=sha(__file__), gpu_tasks_launched=0,
                   remote_connections=0, unsafe_paths_rejected=len(rejected),
                   terminal_file_selection_checked=True, stable_control_hashes_checked=True,
+                  failed_cutoff_partial_checkpoint_selection_checked=True,
+                  owned_process_group_TERM_reap_checked=True,
                   symlink_escape_rejected=True, real_local_pidfd_exit_wait_checked=True,
                   real_remote_wait_code_executed_locally=True, terminal_bundle_code_executed_locally=True,
                   gpu='physical GPU1 only; shared 4dsr evaluation lock; two readings before launch',
