@@ -262,6 +262,9 @@ def scene_endpoint(run, scene, manifest):
         assert native['formal'] and native['stage'] == 3 and native['scene'] == scene
         assert native['seed'] == 777 and native['max_steps'] == 200000
         assert native['training_script_sha256'] == TRAIN_SHA and native['benchmark_config_sha256'] == CONFIG_SHA
+        assert len(identity['test_resources']) == 32
+        assert {row['path'] for row in identity['test_resources']} == {
+            f'{folder}/{frame}.png' for folder in ['images', 'masks'] for frame in expected['test_ids']}
         checkpoints = []
         for stage, budget in STEPS.items():
             directory = run / f'runs/formal/{scene}/stage{stage}'
@@ -271,6 +274,7 @@ def scene_endpoint(run, scene, manifest):
             assert receipt['global_step'] == budget and receipt['stage'] == stage
             assert stage_identity['scene'] == scene and stage_identity['stage'] == stage and stage_identity['formal']
             assert stage_identity['max_steps'] == budget and stage_identity['training_script_sha256'] == TRAIN_SHA
+            assert stage_identity['seed'] == 777 and stage_identity['benchmark_config_sha256'] == CONFIG_SHA
             checkpoint = directory / 'final.ckpt'
             checkpoints.append(dict(stage=stage, checkpoint=str(checkpoint), sha256=sha(checkpoint)))
         assert checkpoints[-1]['sha256'] == identity['checkpoint_sha256']
@@ -344,8 +348,52 @@ def cpu_check():
         target.mkdir(parents=True)
         assert tennis_source_link(run)['status'] == 'read_only_source_index_link'
         assert tennis_source_link(run)['status'] == 'read_only_source_index_link'
+        # Six tiny synthetic endpoints exercise the exact production validator;
+        # none of these placeholder values enters the actual benchmark files.
+        fixture_manifest = {'scenes': {}}
+        for scene in SCENES:
+            ids = [f'{index:05d}' for index in range(16)]
+            fixture_manifest['scenes'][scene] = {'test_ids': ids}
+            checkpoints = []
+            for stage, budget in STEPS.items():
+                directory = run / f'runs/formal/{scene}/stage{stage}'
+                directory.mkdir(parents=True, exist_ok=True)
+                (directory / 'final.ckpt').write_bytes(f'CPU fixture {scene} {stage}'.encode())
+                write(directory / 'receipt.json', dict(status='completed', complete=True, formal=True,
+                      global_step=budget, stage=stage))
+                identity = dict(scene=scene, stage=stage, formal=True, seed=777, max_steps=budget,
+                                training_script_sha256=TRAIN_SHA, benchmark_config_sha256=CONFIG_SHA)
+                write(directory / 'identity.json', identity)
+                checkpoints.append(directory / 'final.ckpt')
+            data = run / ('a100_return/local_data/Tennis' if scene == 'Tennis' else f'data/{scene}')
+            resources = []
+            artifacts = []
+            output = run / f'evaluation/{scene}'
+            for frame in ids:
+                for folder in ['images', 'masks']:
+                    resource = data / folder / (frame + '.png')
+                    resource.parent.mkdir(parents=True, exist_ok=True)
+                    resource.write_bytes(b'CPU fixture, not a real image')
+                    resources.append(dict(path=str(resource.relative_to(data)), sha256=sha(resource)))
+                for folder, suffix in [('floats', '.npz'), ('images', '.png'), ('gt', '.png')]:
+                    artifact = output / folder / (frame + suffix)
+                    artifact.parent.mkdir(parents=True, exist_ok=True)
+                    artifact.write_bytes(b'CPU fixture, not a real rendering')
+                    artifacts.append(dict(path=str(artifact.relative_to(output)), sha256=sha(artifact)))
+            write(output / 'metrics.json', dict(status='completed', source_kind='local_retrained', scene=scene,
+                  frames=16, per_frame=[dict(frame_id=frame, PSNR=1., SSIM=.5, LPIPS=.3) for frame in ids],
+                  mean_metrics=dict(PSNR=1., SSIM=.5, LPIPS=.3), artifacts=artifacts,
+                  identity=dict(strict_load=True, global_step=200000, test_ids=ids,
+                    checkpoint=str(checkpoints[-1]), checkpoint_sha256=sha(checkpoints[-1]),
+                    checkpoint_benchmark_identity=identity, data_path=str(data), test_resources=resources)))
+        verified = [scene_endpoint(run, scene, fixture_manifest) for scene in SCENES]
+        assert all(row['verified'] for row in verified), verified
+        (run / 'evaluation/Dance/images/00000.png').write_bytes(b'changed fixture artifact')
+        verified = [scene_endpoint(run, scene, fixture_manifest) for scene in SCENES]
+        assert sum(row['verified'] for row in verified) == 5
     value = dict(status='passed_cpu_fixtures', actual_pidfd_exit=True, terminal_success_and_failure_checked=True,
                  missing_endpoint_not_completed=True, strict_tennis_link_checked=True,
+                 six_valid_synthetic_endpoints_verified=True, changed_artifact_rejects_one_of_six=True,
                  gpu_tasks_launched=0, parameters_updated=0, coordinator_sha256=sha(__file__), checked_unix=time.time())
     write(OPS / 'cpu_check.json', value)
     print(json.dumps(value), flush=True)
