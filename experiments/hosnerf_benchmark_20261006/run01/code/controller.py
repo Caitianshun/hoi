@@ -37,7 +37,7 @@ def read(path):
 
 def wait_exit(pid):
     try:
-        fd = os.pidfd_open(pid)
+        fd = pipeline.pidfd_open(pid)
     except ProcessLookupError:
         return
     try:

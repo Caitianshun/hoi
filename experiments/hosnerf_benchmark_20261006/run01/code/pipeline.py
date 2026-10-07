@@ -2,6 +2,7 @@
 """Persistent, resource-coordinated native HOSNeRF benchmark queue."""
 from __future__ import annotations
 import argparse
+import ctypes
 import datetime as dt
 import fcntl
 import hashlib
@@ -51,10 +52,26 @@ def sha(path):
     return h.hexdigest()
 
 
+def pidfd_open(pid):
+    if hasattr(os, 'pidfd_open'):
+        return os.pidfd_open(pid)
+    # The bundled CPython 3.10 omits os.pidfd_open; glibc exposes it here.
+    libc = ctypes.CDLL(None, use_errno=True)
+    function = libc.pidfd_open
+    function.argtypes = [ctypes.c_int, ctypes.c_uint]
+    function.restype = ctypes.c_int
+    fd = function(pid, 0)
+    if fd < 0:
+        error = ctypes.get_errno()
+        raise OSError(error, os.strerror(error))
+    os.set_inheritable(fd, False)
+    return fd
+
+
 def wait_processes(pids):
     fds=[]
     for pid in pids:
-        try:fds.append(os.pidfd_open(pid))
+        try:fds.append(pidfd_open(pid))
         except ProcessLookupError:pass
     while fds:
         ready,_,_=select.select(fds,[],[])
