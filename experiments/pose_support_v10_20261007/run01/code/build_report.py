@@ -126,6 +126,17 @@ def docx():
             self.doc.core_properties.subject="V10 全图质量向量、条件与资源取舍"
             for paragraph in self.doc.sections[0].footer.paragraphs:
                 for run in paragraph.runs:run.text=run.text.replace("V3 基线校准","V10 完整对照")
+        def table(self, rows, widths, size=8.6, left_columns=(0,)):
+            table=super().table(rows,widths,size,left_columns)
+            # Keep long numeric tables and their explanatory text on one page.
+            # Text size stays fixed; only generous cell padding is adjusted.
+            from docx.oxml.ns import qn
+            for row in table.rows:
+                for cell in row.cells:
+                    margins=cell._tc.get_or_add_tcPr().find(qn("w:tcMar"))
+                    for side in ("top","bottom"):
+                        margins.find(qn("w:"+side)).set(qn("w:w"),"40")
+            return table
     r=Report();r.p("姿态驱动补充高斯与区域重建完整结果","Title");r.p("V10  Backpack 与 Tennis  逐场景优化","Subtitle")
     for paragraph in review["summary_paragraphs"]:r.p(paragraph)
     r.p("两场景各C、P、PQ新增20000次Adam，共120000次有效更新。全部六终态先冻结，再统一评价；未经续训父模型另列。主目标为全图PSNR、SSIM与LPIPS质量向量，接受有意义的取舍，不设前景或几何硬门槛。")
@@ -134,16 +145,23 @@ def docx():
         for arm in ["PARENT","C","P","PQ"]:table.append([scene,arm,*[num(value["summaries"][arm]["retained"]["full"][k],6) for k in KEYS]])
     r.table(table,[1.12,.8,1.69,1.69,1.69],10)
     r.p("U、Q、Q0为历史评价结果，保留其来源哈希与训练预算差异。Backpack父模型选择V9 Q0，Tennis选择V8 Q，是已经开发过的场景级选择，不是独立盲测。C→P同时增加训练姿态先验、初始化与支撑容量。")
-    r.page("问题、表示与训练信息")
+    r.page("问题 表示与训练信息")
     r.p("峰值信噪比PSNR把像素均方误差换算为dB，越高越好；结构相似性SSIM比较局部亮度、对比度和结构，越高越好。学习感知图像块相似度LPIPS比较预训练网络特征差异，越低越好。本轮同时报告三项，避免用一种指标掩盖另一种质量变化。")
     r.p("运动主体仅占画面的一小部分，但其像素误差可能占据相当比例。已有全场自由形变保留对背景、背包、球拍和衣物的解释能力；新增P用关节骨架承担人体粗运动，让小网络主要拟合剩余形变。该机制的作用须由完整配对结果判断。")
     r.p("例如Tennis中人物从球场走向长凳。自由形变基座直接由位置和时间预测点的运动，某些留出帧中人体变成模糊团块。P先把新增点放在人体骨段附近，再随肩、肘、髋等关节移动。训练RGB与联合渲染的差异反向更新点的外观、位置和小网络，使其补足观测人体；姿态与四骨权重保持固定。背包与球拍仍由原自由基座解释，本轮没有给它们新增独立物体节点。")
     r.p("规范域指人体参考姿态下的坐标。bank指一组具有独立生命周期的高斯点；高斯协方差描述点在三维中的椭球形状和方向。线性混合蒙皮LBS以固定权重对四个骨变换求加权和，使一个点可同时随相邻骨段移动。多层感知机MLP是小型全连接网络，本轮用规范位置和时间预测粗运动之外的自由残差。raster指高斯投影和像素合成过程。")
     r.p("P从24关节骨段体积中建立20000个弱形状种子，规范位置、尺度、旋转、透明度和颜色可学习；固定四骨非负权重给出加权骨变换。小MLP预测规范位置、尺度和旋转残差。中心和协方差均转换到父模型世界坐标，两bank一次联合深度排序与raster，没有按mask贴图。")
     r.p("原base点拓扑固定，所有属性和旧形变网络仍可学。新bank独立增密，完成500–8000次更新期间每100次after-Adam处理clone、split和prune，最多60000点。其屏幕梯度先按每视图取范数，再以可见次数归一化；它不是完整AbsGS。")
+    r.page("优化目标与查询条件")
     r.p("三臂采用同一场景父状态、fresh Adam、预生成RGB批次顺序和base学习率；P/PQ使用完全相同的新bank初态。C/P目标Q为0.8 L1加0.2乘以1−SSIM11。PQ用0.9 Q_full加0.1 Q_FG；先在完整RGB计算SSIM图，再按原训练前景mask求区域平均，空mask退回全图。")
     r.p("P/PQ优化及轨迹查询只使用训练帧姿态；查询时局部关节旋转和根旋转以四元数SLERP插值，局部与根平移线性插值，根正尺度在log空间插值。区间外取最近训练姿态，因此00000为边界近似。推理不读查询mask，不读查询人体根变换绕过留出。")
     r.p("相机和世界规范锁定父manifest。发布规范骨架属于场景先验，其全序列预处理来源与相机估计信息边界尚未完全证明train-only。模型时间为(f−1)/282或(f−1)/299，经frame_id与原生HOSNeRF时间区分；不能将不同查询条件的模型混成无标注排行榜。")
+    conditions=read(RUN/"input_conditions.json")
+    table=[["场景","训练帧","开发帧","父状态","父实际Adam"]]
+    for scene,value in conditions.items():
+        table.append([scene,value["training_frames"],value["development_frames"],value["parent"]["schema"],value["parent"]["historical_updates"]])
+    r.table(table,[1.39,1.2,1.2,1.6,1.6],10)
+    r.p("Backpack父状态为V9 Q0，Tennis为V8 Q。Tennis路径名义014000对应13999次实际Adam，旧文件标记不可直接恢复；本轮仅导入权重，并为三臂建立全新Adam、RNG和固定采样位置，未继续旧优化器或伪造第14000次更新。父状态与六个新终态的路径、大小、完整SHA见model_index.json。")
     for scene,value in ev["scenes"].items():
         for split,label in [("retained","开发16帧"),("train","完整训练集"),("retained_without_00000","去00000补充15帧")]:
             r.page(scene+" "+label+" 质量向量")
@@ -151,9 +169,17 @@ def docx():
             for region,name in REGIONS:
                 for arm in ARMS:table.append([name,arm,*[num(value["summaries"][arm][split][region][k],6) for k in KEYS]])
             r.table(table,[.8,.8,1.79,1.79,1.81],9.7)
-            if split=="retained":
-                for paragraph in review["scene_interpretation"][scene]:r.p(paragraph)
             r.p("前景沿用发布合并mask。没有可靠独立人、物mask，相应指标为NA；图像质量不直接证明几何、接触、真实深度或物体独立运动。")
+            if split=="retained":
+                r.page(scene+" 开发结果解释")
+                for paragraph in review["scene_interpretation"][scene]:r.p(paragraph)
+                table=[["设置","训练全图 PSNR","开发全图 PSNR","训练减开发 dB"]]
+                for arm in ["C","P","PQ"]:
+                    train=value["summaries"][arm]["train"]["full"]["psnr_db"]
+                    dev=value["summaries"][arm]["retained"]["full"]["psnr_db"]
+                    table.append([arm,num(train,6),num(dev,6),num(train-dev,6)])
+                r.table(table,[.8,2.05,2.05,2.09],10)
+                r.p("这一差距只描述不同训练与开发图像集合的拟合差异，包含相机视角与时刻变化。不能将它单独解释成纯时间泛化误差或过拟合的因果证明。")
         r.page(scene+" 三组核心配对差")
         table=[["比较","区域","指标","均值差","中位差","胜 平 负"]]
         for pair in PAIRS:
@@ -169,7 +195,7 @@ def docx():
     r.table(table,[1.2,1.93,1.93,1.93],10)
     r.p("先计算每场景逐帧宏平均，再将两个场景等权平均。允许场景级配置，但不按单帧选最好分支，不按不同指标拼接不存在的模型。")
     for paragraph in review["selection_paragraphs"]:r.p(paragraph)
-    r.page("工程验收、恢复与实际预算")
+    r.page("工程验收 恢复与实际预算")
     r.p("一次集成验收实际记录为："+str(accept.get("diagnostic_Adam_updates",accept.get("actual_Adam_updates","NA")))+"次Adam、"+str(accept.get("extra_no_update_backwards","NA"))+"次额外不更新反向。其坐标、数据、联合渲染、梯度、拓扑与恢复范围以module_acceptance.json为准。")
     for paragraph in review.get("engineering_incidents",[]):r.p(paragraph)
     r.p(f"正式有效更新{cost['formal_effective_updates']}，实际尝试{cost['formal_attempts']}，含重放的日志确认Adam{cost['confirmed_logged_Adam_updates_including_replay']}；另{cost['unlogged_attempt_outcomes']}次已开始尝试缺少完成记录，Adam执行情况未知。状态恢复{len(cost['recoveries'])}次，重放尝试{cost['replay_attempts']}；恢复成功不代表根因已修复。")
