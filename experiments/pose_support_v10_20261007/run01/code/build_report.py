@@ -214,7 +214,7 @@ def docx():
         ["正式完成Adam",cost["confirmed_logged_Adam_updates_including_replay"],"与开始attempt和采样日程一致"],
         ["固定比较图",visual["fixed_figure_comparisons_reviewed"],"两场景400个方法分栏"]],
         [2.1,1.29,3.6],10)
-    r.p(f"CPU评价与独立数值核验进程共{num(cost['CPU_job_seconds'],2)}秒，文档排版与目检另计。所有新分数由同一评价器计算，开发图均在六终态冻结后读取；工程验收没有提前按短训质量挑选配置。历史U/Q/Q0按原冻结分数和身份索引复用，没有冒称重新训练或统一输入。")
+    r.p(f"账本登记的CPU评价与独立数值核验进程共{num(cost['CPU_job_seconds'],2)}秒，追加只读审计、文档排版与目检另计。所有新分数由同一评价器计算，开发图均在六终态冻结后读取；工程验收没有提前按短训质量挑选配置。历史U/Q/Q0按原冻结分数和身份索引复用，没有冒称重新训练或统一输入。")
     r.p("反馈包中的metrics_per_frame.csv、paired_differences.csv、evaluation_summary.json与costs.json保留可追溯数值。protocol/final_numeric_audit.json记录独立逐行、日程及哈希复核；protocol/final_protocol_audit.json记录额外输入、拓扑与终态来源边界。原始完整浮点数组与模型留在训练机。")
     for scene in ev["scenes"]:
         figures=read(RUN/"scenes"/scene/"figure_manifest.json")["figures"]
@@ -248,7 +248,7 @@ def package():
     def add(path,name=None):
         path=Path(path)
         if path.is_file():files[name or path.relative_to(RUN).as_posix()]=path
-    for name in ["metrics_per_frame.csv","paired_differences.csv","evaluation_summary.json","costs.json","model_index.json","input_conditions.json","NEXT_DECISION.md","REPRODUCE.md"]:add(RUN/name)
+    for name in ["metrics_per_frame.csv","paired_differences.csv","evaluation_summary.json","costs.json","model_index.json","input_conditions.json","NEXT_DECISION.md","REPRODUCE.md","RESEARCH_LOG.md","pipeline.json","active_job.json"]:add(RUN/name)
     for folder in ["protocol","scenes","diagnostics","logs","code","configs"]:
         for path in (RUN/folder).rglob("*"):
             if not path.is_file() or "__pycache__" in path.parts:continue
