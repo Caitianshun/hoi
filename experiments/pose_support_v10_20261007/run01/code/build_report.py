@@ -204,8 +204,18 @@ def docx():
     for b in cost["branches"]:table.append([b["scene"],b["arm"],b["base_points"],b["support_points"],b["peak_support_points"],num(b["seconds"],2),"NA" if b["peak_allocated_bytes"] is None else num(b["peak_allocated_bytes"]/(1<<30),3)])
     r.table(table,[1.05,.5,1.1,1.1,1.1,1.14,1],8.8)
     r.p("分支秒数包含失败与恢复前后进程。缺失崩溃前峰值时全程峰值为NA，恢复尾段观测仅为下界。完整状态包含两bank、骨变换与规范尺度、四骨权重、MLP、Adam、LR、SH、密度缓冲、RNG和样本位置。")
+    r.page("共同评价与核验范围")
     r.p(f"独立核验{verification['rows']}指标行、{verification['paired_rows']}配对行，从浮点渲染重算{verification['PSNR_recomputed']}个新PSNR，最大差{verification['max_PSNR_difference']:.3g}。SSIM/LPIPS只独立复核聚合与配对，未声称第二实现重新评价。")
     r.p("评价RGB先clip至[0,1]，PSNR为逐帧dB宏平均，pooled与raw另列。SSIM7使用非Gaussian窗口与sample covariance，与训练SSIM11区分；LPIPS采用AlexNet0.1、spatial=True、normalize=True，区域从完整feature map聚合，不以放大裁剪替代。")
+    r.table([["核验项","记录数","实际范围"],
+        ["指标行",verification["rows"],"包含历史与新结果"],
+        ["配对差行",verification["paired_rows"],"逐帧对应与汇总"],
+        ["新PSNR重算",verification["PSNR_recomputed"],"浮点RGB与原GT"],
+        ["正式完成Adam",cost["confirmed_logged_Adam_updates_including_replay"],"与开始attempt和采样日程一致"],
+        ["固定比较图",visual["fixed_figure_comparisons_reviewed"],"两场景400个方法分栏"]],
+        [2.1,1.29,3.6],10)
+    r.p(f"CPU评价与独立数值核验进程共{num(cost['CPU_job_seconds'],2)}秒，文档排版与目检另计。所有新分数由同一评价器计算，开发图均在六终态冻结后读取；工程验收没有提前按短训质量挑选配置。历史U/Q/Q0按原冻结分数和身份索引复用，没有冒称重新训练或统一输入。")
+    r.p("反馈包中的metrics_per_frame.csv、paired_differences.csv、evaluation_summary.json与costs.json保留可追溯数值。protocol/final_numeric_audit.json记录独立逐行、日程及哈希复核；protocol/final_protocol_audit.json记录额外输入、拓扑与终态来源边界。原始完整浮点数组与模型留在训练机。")
     for scene in ev["scenes"]:
         figures=read(RUN/"scenes"/scene/"figure_manifest.json")["figures"]
         for split,kind,label,columns in [("retained","full","开发固定全图",1),("retained","foreground_crop","开发固定前景裁剪",2),("train","full","原固定训练图",1)]:
