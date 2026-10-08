@@ -136,6 +136,8 @@ def docx():
     r.p("U、Q、Q0为历史评价结果，保留其来源哈希与训练预算差异。Backpack父模型选择V9 Q0，Tennis选择V8 Q，是已经开发过的场景级选择，不是独立盲测。C→P同时增加训练姿态先验、初始化与支撑容量。")
     r.page("问题、表示与训练信息")
     r.p("运动主体仅占画面的一小部分，但其像素误差可能占据相当比例。已有全场自由形变保留对背景、背包、球拍和衣物的解释能力；新增P用关节骨架承担人体粗运动，让小网络主要拟合剩余形变。该机制的作用须由完整配对结果判断。")
+    r.p("例如Tennis中人物从球场走向长凳。自由形变基座直接由位置和时间预测点的运动，某些留出帧中人体变成模糊团块。P先把新增点放在人体骨段附近，再随肩、肘、髋等关节移动。训练RGB与联合渲染的差异反向更新点的外观、位置和小网络，使其补足观测人体；姿态与四骨权重保持固定。背包与球拍仍由原自由基座解释，本轮没有给它们新增独立物体节点。")
+    r.p("规范域指人体参考姿态下的坐标。bank指一组具有独立生命周期的高斯点；高斯协方差描述点在三维中的椭球形状和方向。线性混合蒙皮LBS以固定权重对四个骨变换求加权和，使一个点可同时随相邻骨段移动。多层感知机MLP是小型全连接网络，本轮用规范位置和时间预测粗运动之外的自由残差。raster指高斯投影和像素合成过程。")
     r.p("P从24关节骨段体积中建立20000个弱形状种子，规范位置、尺度、旋转、透明度和颜色可学习；固定四骨非负权重给出加权骨变换。小MLP预测规范位置、尺度和旋转残差。中心和协方差均转换到父模型世界坐标，两bank一次联合深度排序与raster，没有按mask贴图。")
     r.p("原base点拓扑固定，所有属性和旧形变网络仍可学。新bank独立增密，完成500–8000次更新期间每100次after-Adam处理clone、split和prune，最多60000点。其屏幕梯度先按每视图取范数，再以可见次数归一化；它不是完整AbsGS。")
     r.p("三臂采用同一场景父状态、fresh Adam、预生成RGB批次顺序和base学习率；P/PQ使用完全相同的新bank初态。C/P目标Q为0.8 L1加0.2乘以1−SSIM11。PQ用0.9 Q_full加0.1 Q_FG；先在完整RGB计算SSIM图，再按原训练前景mask求区域平均，空mask退回全图。")
@@ -171,9 +173,9 @@ def docx():
     for paragraph in review.get("engineering_incidents",[]):r.p(paragraph)
     r.p(f"正式有效更新{cost['formal_effective_updates']}，实际尝试{cost['formal_attempts']}，含重放的日志确认Adam{cost['confirmed_logged_Adam_updates_including_replay']}；另{cost['unlogged_attempt_outcomes']}次已开始尝试缺少完成记录，Adam执行情况未知。状态恢复{len(cost['recoveries'])}次，重放尝试{cost['replay_attempts']}；恢复成功不代表根因已修复。")
     r.p(f"GPU任务进程累计{num(cost['GPU_task_hours'],6)}小时，含加载、保存、验收、失败与最终渲染；资源等待和文档排版另计。仅使用物理GPU1 RTX3090，同硬件完成六臂。本轮没有重启用户已暂停的HOSNeRF，完整原生基线仍缺失。")
-    table=[["场景","设置","base点数","support点数","进程秒","峰值 GiB"]]
-    for b in cost["branches"]:table.append([b["scene"],b["arm"],b["base_points"],b["support_points"],num(b["seconds"],2),"NA" if b["peak_allocated_bytes"] is None else num(b["peak_allocated_bytes"]/(1<<30),3)])
-    r.table(table,[1.05,.65,1.3,1.3,1.4,1.29],9)
+    table=[["场景","设置","base点数","support终态","support峰值","进程秒","峰值 GiB"]]
+    for b in cost["branches"]:table.append([b["scene"],b["arm"],b["base_points"],b["support_points"],b["peak_support_points"],num(b["seconds"],2),"NA" if b["peak_allocated_bytes"] is None else num(b["peak_allocated_bytes"]/(1<<30),3)])
+    r.table(table,[1.05,.5,1.1,1.1,1.1,1.14,1],8.8)
     r.p("分支秒数包含失败与恢复前后进程。缺失崩溃前峰值时全程峰值为NA，恢复尾段观测仅为下界。完整状态包含两bank、骨变换与规范尺度、四骨权重、MLP、Adam、LR、SH、密度缓冲、RNG和样本位置。")
     r.p(f"独立核验{verification['rows']}指标行、{verification['paired_rows']}配对行，从浮点渲染重算{verification['PSNR_recomputed']}个新PSNR，最大差{verification['max_PSNR_difference']:.3g}。SSIM/LPIPS只独立复核聚合与配对，未声称第二实现重新评价。")
     r.p("评价RGB先clip至[0,1]，PSNR为逐帧dB宏平均，pooled与raw另列。SSIM7使用非Gaussian窗口与sample covariance，与训练SSIM11区分；LPIPS采用AlexNet0.1、spatial=True、normalize=True，区域从完整feature map聚合，不以放大裁剪替代。")
@@ -216,7 +218,7 @@ def package():
             if path.suffix in [".py",".json",".jsonl",".csv",".md",".log",".txt"]:add(path)
             elif path.suffix in [".jpg",".png"] and "figures" in path.parts:add(path)
             elif path.suffix==".npz" and "feedback_arrays" in path.parts:add(path)
-    for name in ["pose_prior_adapter.py","pose_support_gaussians.py","region_reconstruction.py"]:add(ROOT/"hoi_modules"/name,"source/hoi_modules/"+name)
+    for name in ["pose_prior_adapter.py","pose_support_gaussians.py","region_reconstruction.py","projected_motion.py"]:add(ROOT/"hoi_modules"/name,"source/hoi_modules/"+name)
     dependencies={
         "baseline_protocol_calibration_20260927":["adapter_4dgs.py","evaluate_frozen.py","build_report_docx.py","summarize_existing.py"],
         "numerical_stability_calibration_20260927":["common.py","evaluate_and_report.py"],
