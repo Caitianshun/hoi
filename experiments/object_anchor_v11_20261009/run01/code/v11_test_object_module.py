@@ -102,7 +102,8 @@ def test_densify_and_optimizer_mapping():
     bank.gradient_accum[:20] = 1.0
     bank.visible_count[:20] = 1.0
     with torch.no_grad():
-        bank._scaling[:10] = math.log(0.5)   # large -> split
+        bank._scaling[:10] = math.log(0.5)    # large -> split
+        bank._scaling[10:20] = math.log(0.001)  # small -> clone
     event = bank.after_adam_topology(opt, 200)
     assert event["new_children"] == 30 and len(bank) == n + 20, event
     for g in opt.param_groups:
