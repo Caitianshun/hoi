@@ -1,0 +1,59 @@
+{
+ "protocol": "V11",
+ "authorization": "experiments/object_anchor_v11_20261009/run01/protocol/user_guidance_source.md",
+ "scenes": {
+  "Backpack": {
+   "v10_scene": "experiments/pose_support_v10_20261007/run01/scenes/Backpack",
+   "input_dir": "experiments/baseline_protocol_calibration_20260927/run01/inputs/hos_backpack",
+   "release_zip": "other data/Backpack.zip",
+   "training_frames": 268,
+   "retained_frames": 16
+  },
+  "Tennis": {
+   "v10_scene": "experiments/pose_support_v10_20261007/run01/scenes/Tennis",
+   "input_dir": "experiments/temporal_evidence_v8_20260928/run01/tennis/inputs/hos_tennis",
+   "release_zip": "other data/Tennis.zip",
+   "training_frames": 285,
+   "retained_frames": 16
+  }
+ },
+ "pose_protocols": {
+  "A": "retained-frame human pose from training poses only (V10 SLERP/linear rule)",
+  "B": "retained-frame human pose and camera from the published release (HOSNeRF official test loader condition); query-only, never used for training, initialization, colour or selection"
+ },
+ "evaluator": {
+  "source": "experiments/baseline_protocol_calibration_20260927/run01/code/evaluate_frozen.py::evaluate_image",
+  "lpips": "AlexNet v0.1 spatial mean via evaluate_and_report.lpips_cpu (same as V10)",
+  "ssim": "7x7 uniform window, sample covariance, full map mean",
+  "rgb_clip": [0, 1],
+  "published_mask_threshold": 128
+ },
+ "budgets": {
+  "E3_E0b_GPU_seconds": 7200,
+  "E1_E2_GPU_seconds": 54000
+ },
+ "hardware": {
+  "physical_GPU": 1,
+  "GPU_uuid": "GPU-c40035c3-0f06-e88b-73f5-fa40d62ec4ec",
+  "name": "NVIDIA GeForce RTX 3090",
+  "CPU_threads": 4,
+  "python": "envs/4dgs/bin/python",
+  "idle_sample_interval_seconds": 15,
+  "resource_wait_seconds": 86400,
+  "maximum_idle_memory_MiB": 100,
+  "maximum_idle_utilization_percent": 5,
+  "shared_locks": [
+   "/home/cai_tianshun/Project/4dsr/output/dynamic_sr_confidence_geometry_20261006/evaluation_gpu.lock",
+   "/home/cai_tianshun/Project/4dsr/output/dynamic_sr_multiview_footprint_20261007/locks/GPU-c40035c3-0f06-e88b-73f5-fa40d62ec4ec.controller.lock"
+  ]
+ },
+ "E3": {
+  "question": "How much of the V10 retained-frame foreground drop comes from training-pose interpolation?",
+  "models": "V10 frozen terminal checkpoints P and PQ (20000 fresh-Adam updates); C and PARENT take no pose input, so their protocol-B renders equal protocol A by construction",
+  "change": "only the support-bank bone transforms at the 16 retained frames (published SMPL instead of interpolation); base 4DGS, cameras, times unchanged",
+  "training": 0,
+  "outputs": "evaluation/E3/{scene}/{arm}/retained/{frame_id}.npz",
+  "decision": "foreground gain >= 1 dB on a scene marks pose interpolation as a major error source under protocol A"
+ },
+ "core_evidence_freeze": "2026-11-04T23:00:00+08:00"
+}

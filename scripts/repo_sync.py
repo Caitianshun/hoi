@@ -16,6 +16,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SOURCE_ROOTS = ("scripts", "experiments", "research", "patches", "hoi_modules")
 ROOT_FILES = ("README.md", "AGENTS.md", ".gitignore", ".vscode/settings.json")
 EXTRA_CONFIG_FILES = (
+    "experiments/object_anchor_v11_20261009/run01/configs/v11.json",
     "experiments/pose_support_v10_20261007/run01/configs/v10.json",
     "experiments/hosnerf_benchmark_20261006/run01/configs/benchmark.json",
     "experiments/local_dynamic_v9_20260929/run01/configs/v9.json",
@@ -81,6 +82,9 @@ def allowed(path: Path) -> bool:
         return relative.parent.as_posix() == "experiments/hosnerf_benchmark_20261006/run01/code" and path.suffix in SOURCE_EXTENSIONS
     if name.startswith("hoi_modules/"):
         return len(relative.parts) == 2 and path.suffix == ".py"
+    if name.startswith("experiments/object_anchor_v11_20261009/run01/"):
+        # Only V11 source code; protocol records, inputs, masks, models and results stay private.
+        return relative.parent.as_posix() == "experiments/object_anchor_v11_20261009/run01/code" and path.suffix in SOURCE_EXTENSIONS
     if name.startswith("experiments/pose_support_v10_20261007/run01/"):
         return relative.parent.as_posix() == "experiments/pose_support_v10_20261007/run01/code" and path.suffix in SOURCE_EXTENSIONS
     if name.startswith("experiments/local_dynamic_v9_20260929/run01/"):
