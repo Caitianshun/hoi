@@ -133,6 +133,30 @@ for name,cases in groups.items():
  p=OUT/'figures'/(name+'.png');p.parent.mkdir(parents=True,exist_ok=True);sheet.save(p)
  results['illustrations'].append({'image':asset(p),'cases':recs})
 
+# Visual mask audit, not a new foreground annotation or metric.
+canvas=Image.new('RGB',(1500,1020),'white');draw=ImageDraw.Draw(canvas)
+mask_cases=[results['illustrations'][0]['cases'][0],results['illustrations'][1]['cases'][1],
+ results['illustrations'][2]['cases'][1],results['illustrations'][3]['cases'][0]]
+for i,c in enumerate(mask_cases):
+ a=np.array(Image.open(c['sources'][0]['path']).convert('RGB'))
+ m=np.array(Image.open(c['sources'][1]['path']).convert('L'))
+ x0,y0,x1,y1=c['bounds_xyxy'];im=Image.fromarray(a[y0:y1,x0:x1]);mask=Image.fromarray(m[y0:y1,x0:x1]).convert('RGB')
+ overlay=np.asarray(im).copy();mm=m[y0:y1,x0:x1]>=128
+ overlay[mm]=np.rint(.6*overlay[mm]+.4*np.array([255,30,30])).astype('uint8')
+ ox=(i%2)*750;oy=(i//2)*510
+ draw.text((ox+5,oy+5),f"{c['scene']} {c['split']} {c['frame_id']} GT / Mask / Overlay",font=small,fill='black')
+ for j,img in enumerate([im,mask,Image.fromarray(overlay)]):
+  img.thumbnail((245,455));canvas.paste(img,(ox+j*250+(250-img.width)//2,oy+45+(455-img.height)//2))
+p=OUT/'figures/mask_audit.png';canvas.save(p)
+results['mask_audit']={'image':asset(p),'cases':mask_cases,
+ 'display':'Red overlay is the published mask >=128, not a new object segmentation.',
+ 'observation':'Inspected racket masks include the interior of the string bed. They are not precise opacity targets.'}
+canvas=Image.new('RGB',(1400,1310),'white')
+canvas.paste(Image.open(OUT/'figures/training_failure.png'),(0,0))
+canvas.paste(Image.open(OUT/'figures/static_and_remaining.png').crop((0,0,1400,430)),(0,880))
+p=OUT/'figures/train_and_static.png';canvas.save(p)
+results['training_static_figure']=asset(p)
+
 sources=[RUN/'configs/v10.json',RUN/'input_conditions.json',RUN/'NEXT_DECISION.md',
  ROOT/'hoi_modules/pose_support_gaussians.py',ROOT/'hoi_modules/pose_prior_adapter.py',ROOT/'hoi_modules/region_reconstruction.py',
  RUN/'code/train_scene.py',RUN/'code/render_scene.py',RUN/'code/evaluate.py',

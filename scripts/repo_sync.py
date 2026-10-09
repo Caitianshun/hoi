@@ -73,6 +73,9 @@ def allowed(path: Path) -> bool:
     name = relative.as_posix()
     if name in ROOT_FILES or name in EXTRA_CONFIG_FILES:
         return True
+    if name.startswith("research/2026-10-08/hoi_reconstruction_review/"):
+        # Publish the reusable audit only; report builders contain private prose.
+        return relative.parent.as_posix() == "research/2026-10-08/hoi_reconstruction_review" and path.name == "audit_evidence.py"
     if name.startswith("experiments/hosnerf_benchmark_20261006/run01/"):
         # Input identities, paper audits, resources and benchmark results stay private.
         return relative.parent.as_posix() == "experiments/hosnerf_benchmark_20261006/run01/code" and path.suffix in SOURCE_EXTENSIONS
